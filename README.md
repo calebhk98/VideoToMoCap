@@ -249,7 +249,14 @@ python -m videotomocap scan       # (re)build the manifest; applies exclude_patt
 python -m videotomocap status     # what will be processed
 python -m videotomocap hmr        # HMR + anonymize (resumable, checkpoints each clip)
 python -m videotomocap build      # aggregate into the AMASS dataset
-python motion_model/prepare_mdm_data.py --dataset work/dataset --out work/mdm_data
+python -m motion_model train      # dataset -> motion model (Pipeline 2; see motion_model/)
+```
+
+Or the whole chain in one command:
+
+```bash
+python scripts/run_pipeline.py \
+    --video-config configs/dropzone.yaml --model-config configs/motion_model.yaml
 ```
 
 Need a one-off override? Any config field that matters at the CLI has a flag
