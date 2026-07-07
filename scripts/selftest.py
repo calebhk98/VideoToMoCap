@@ -9,6 +9,7 @@ build AMASS dataset -> prepare MDM skeleton.  Asserts the privacy guarantee
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 import tempfile
@@ -23,6 +24,7 @@ from videotomocap.config import PipelineConfig
 from videotomocap.dataset import AMASS_SMPLH_POSE_DIM
 from videotomocap.ingest import Manifest
 from videotomocap.pose import SMPL_POSE_DIM, SmplMotion
+from motion_model import MotionModelConfig, get_trainer
 
 
 def make_fake_footage(root: Path) -> None:
@@ -110,6 +112,15 @@ def main() -> int:
         check(rc.returncode == 0, f"prepare_mdm_data ran (stderr: {rc.stderr[-200:]})")
         check((out / "train.txt").exists(), "MDM train split written")
         check(len(list((out / "texts").glob("*.txt"))) == 5, "one caption scaffold per clip")
+
+        print("8) Pipeline 2: prepare + train with the synthetic 'noop' method")
+        mm_cfg = MotionModelConfig(dataset_dir=cfg.dataset_dir, work_root=tmp / "mm", method="noop")
+        trainer = get_trainer(mm_cfg)
+        trainer.prepare()
+        save = trainer.train()
+        check((save / "model_final.pt").exists(), "motion-model checkpoint written")
+        mm_manifest = json.loads((save / "train_manifest.json").read_text())
+        check(mm_manifest["n_clips"] == 5, f"trained on all 5 clips (got {mm_manifest['n_clips']})")
 
     print("\nALL CHECKS PASSED")
     return 0

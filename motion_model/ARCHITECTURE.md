@@ -140,8 +140,14 @@ Patch residual foot-sliding with UE5 foot IK.
 
 ## Status of "is step 2 ready?"
 
-No — it's a scaffold. Even with a perfect dataset, (A) still needs the manual
-HumanML3D 263-d conversion (gated body models, no in-repo training), and (B) + the
-decision layer are unbuilt. The good news: the *data contract* is right, and (B)
-(ProtoMotions) can consume Pipeline 1's npz nearly as-is. See `NEXT_STEPS.md` for
-the (A) build steps and the already-fixed bridge bugs.
+The **orchestration layer now exists**: `python -m motion_model` selects a method
+(`momask`/`mdm`/`protomotions`/`closd`/`noop`) from a YAML, runs `prepare` (dataset
+-> the method's training format) and `train` (shells out to the upstream repo),
+exactly like Pipeline 1's backends. What it cannot do for you — because it's
+gated on external assets, not code — is the manual HumanML3D 263-d feature
+extraction (registration-gated body models) and the heavy training itself, which
+runs in the upstream repos. (B) via ProtoMotions consumes Pipeline 1's npz nearly
+as-is (its converter wants exactly `poses`/`trans`/`mocap_framerate`). The
+DECISION layer remains authored (behavior tree / LLM planner) — see above. So:
+the seams are built and method-swappable; you supply the repos, the licensed SMPL
+model, and the GPU time.

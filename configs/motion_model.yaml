@@ -1,0 +1,47 @@
+# Pipeline 2 config -- train a motion model on Pipeline 1's dataset.
+# Usage:
+#   python -m motion_model --config configs/motion_model.yaml methods   # list options
+#   python -m motion_model --config configs/motion_model.yaml info
+#   python -m motion_model --config configs/motion_model.yaml train
+#
+# Pick the method here -- swapping is this one line, exactly like Pipeline 1's
+# backend. For a GPU-free dry run of the whole flow, set `method: noop`.
+
+# --- Method ---------------------------------------------------------------
+# Generators (train on HumanML3D 263-d features):
+#   momask  -> best pick: ~44M, high fidelity, MIT.        [default]
+#   mdm     -> ~35M; set personalization: lora for LoRA-MDM.
+# Physics controllers (consume the AMASS npz directly, no HumanML3D step):
+#   protomotions -> maintained, Apache-2.0, multi-simulator.
+#   closd        -> closed-loop planner+controller (your generator in the loop).
+# Testing: noop (synthetic; needs nothing).
+method: momask
+
+# --- Working dirs ---------------------------------------------------------
+dataset_dir: work/dataset          # Pipeline 1 output (amass/*.npz + index.json)
+work_root: work/motion_model       # prepared data + checkpoints land here
+python: python                     # interpreter for the upstream trainer's env
+# cuda_device: "0"                 # pin CUDA_VISIBLE_DEVICES for the subprocess
+
+# --- Upstream repos + assets (only the selected method's are needed) ------
+# repo: /opt/momask-codes                  # cloned trainer repo
+# humanml3d_repo: /opt/HumanML3D           # generators: 263-d feature extraction
+# smpl_model: /opt/body_models/smpl        # generators + physics sim (see licence note)
+# resume_checkpoint: /opt/checkpoints/pretrained.pt  # WARM-START, then full fine-tune
+
+# --- Generator training (momask / mdm) -----------------------------------
+conditioning: none        # none | text | action  (action uses cluster.py labels)
+personalization: full     # full | lora  (lora = LoRA-MDM, mdm only)
+num_steps: 80000
+batch_size: 64
+lr: 1.0e-4
+target_fps: 20            # HumanML3D/MDM operate at 20 fps (keep a multiple of 20)
+
+# --- Physics controller (protomotions / closd) ---------------------------
+simulator: isaaclab       # isaaclab | isaacgym (deprecated) | mujoco | newton
+algorithm: masked_mimic   # mimic | amp | ase | masked_mimic
+num_envs: 4096            # cut this if VRAM is tight (throughput ~linear)
+ngpu: 1                   # GPUs for one DDP run; 2x3090 works, Linux only
+robot: smpl
+
+# extra_args: []          # appended verbatim to the upstream training command

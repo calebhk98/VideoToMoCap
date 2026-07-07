@@ -33,7 +33,7 @@ keep_translation: true
 use_frame: global
 
 # --- Dataset ---
-target_fps: 30.0
+target_fps: 20.0           # 20 to match the motion model (HumanML3D/MDM run at 20 fps)
 min_clip_frames: 30
 val_fraction: 0.05
 gender: neutral

@@ -47,6 +47,39 @@ Repos (availability verified 2026-07):
 - MDM — https://github.com/GuyTevet/motion-diffusion-model
 - priorMDM (fine-tuning recipes) — https://github.com/priorMDM/priorMDM
 
+## Config-driven usage (like Pipeline 1)
+
+Pipeline 2 is now method-selectable from a YAML, exactly like Pipeline 1's
+backend. Pick the method in `configs/motion_model.yaml` and run:
+
+```bash
+python -m motion_model methods                      # list selectable methods
+python -m motion_model --config configs/motion_model.yaml info      # what it will do
+python -m motion_model --config configs/motion_model.yaml prepare   # dataset -> training data
+python -m motion_model --config configs/motion_model.yaml train     # prepare + launch training
+```
+
+Methods (`method:` in the config — swapping is one line):
+
+| method | role | features | licence-friendly for paid use |
+|---|---|---|---|
+| `momask` | generator, ~44M (**default pick**) | HumanML3D 263-d | code MIT; SMPL gate applies |
+| `mdm` | generator, ~35M (`personalization: lora` for LoRA-MDM) | HumanML3D 263-d | code MIT; SMPL gate |
+| `protomotions` | physics controller | AMASS npz **direct** | Apache-2.0; SMPL gate |
+| `closd` | closed-loop planner+controller (A+B) | HumanML3D 263-d | MIT; SMPL gate |
+| `noop` | synthetic (tests) | — | — |
+
+Each trainer shells out to its upstream repo (set `repo:` etc. in the config) and
+fails loud with an actionable message when a repo/asset is missing — the heavy
+training runs upstream, this is the orchestration layer. **The SMPL/SMPL-H body
+models every method needs are non-commercial by default; a paid product needs a
+commercial SMPL licence from Meshcapade** (`smpl_model:` is your responsibility).
+See `ARCHITECTURE.md` for the full four-layer stack and `NEXT_STEPS.md` for the
+ordered build.
+
+The subsections below explain the manual HumanML3D feature-extraction hand-off
+the generator methods orchestrate.
+
 ## Steps
 
 ### 1. Convert the AMASS dataset to HumanML3D features
