@@ -50,6 +50,10 @@ class Clip:
     """Handedness disagrees with the corpus consensus -> likely a flipped clip."""
     mirrored: bool = False
     """This clip's pose was left/right corrected (``auto_mirror: correct``)."""
+    low_quality: bool = False
+    """Motion has a hard quality issue (teleport/pose-jump/NaN) -> a drop candidate."""
+    quality_issues: List[str] = field(default_factory=list)
+    """Auto-detected quality findings from ``videotomocap.quality`` (empty = clean)."""
     unreliable_joints: List[int] = field(default_factory=list)
     """SMPL joint indices whose motion is HMR-inferred (out of frame), not
     observed -- derived from ``cfg.camera_occlusions`` / ``partial_body_cameras``.

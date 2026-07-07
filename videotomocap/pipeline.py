@@ -45,6 +45,7 @@ from .gpu import (
 from .ingest import Clip, Manifest
 from .mirror import decide_mirrored, handedness_score, mirror_motion
 from .pose import SMPL_NJOINTS, SmplMotion, anonymize, resample_fps
+from .quality import assess_quality, has_hard_issue
 
 
 def _pose_path(cfg: PipelineConfig, clip: Clip) -> Path:
@@ -267,9 +268,45 @@ def detect_mirroring(cfg: PipelineConfig, manifest: Manifest) -> dict:
     return {"flagged": n_flagged, "corrected": corrected}
 
 
+def assess_quality_pass(cfg: PipelineConfig, manifest: Manifest) -> dict:
+    """Score each recovered clip's plausibility and record the findings.
+
+    Sets ``quality_issues`` (+ ``low_quality`` for hard failures) on every
+    POSE_DONE clip. No-op when ``cfg.quality_filter == 'off'``. Dropping happens
+    in ``build`` (exclude mode); this pass only annotates.
+    """
+    if cfg.quality_filter == "off":
+        return {"flagged": 0, "hard": 0}
+
+    hard = 0
+    for clip in manifest.by_status(ingest.POSE_DONE):
+        path = _pose_path(cfg, clip)
+        if not path.exists():
+            continue
+        issues = assess_quality(
+            SmplMotion.load_npz(path),
+            max_speed_ms=cfg.quality_max_speed_ms,
+            max_joint_step=cfg.quality_max_joint_step,
+            min_motion=cfg.quality_min_motion,
+        )
+        clip.quality_issues = issues
+        clip.low_quality = has_hard_issue(issues)
+        hard += int(clip.low_quality)
+    manifest.save(cfg.manifest_path)
+
+    flagged = sum(1 for c in manifest.clips if c.quality_issues)
+    print(f"quality_filter={cfg.quality_filter}: {flagged} clips with issues, {hard} hard")
+    return {"flagged": flagged, "hard": hard}
+
+
 def build(cfg: PipelineConfig, manifest: Manifest):
-    """Aggregate all anonymized clips into the AMASS-format training dataset."""
+    """Run the analysis passes, then aggregate anonymized clips into the dataset."""
+    detect_mirroring(cfg, manifest)      # no-op unless auto_mirror is set
+    assess_quality_pass(cfg, manifest)   # no-op unless quality_filter is set
+
     done = manifest.by_status(ingest.POSE_DONE)
+    if cfg.quality_filter == "exclude":
+        done = [c for c in done if not c.low_quality]  # drop hard-failing clips
     pose_paths = [_pose_path(cfg, c) for c in done]
     pose_paths = [p for p in pose_paths if p.exists()]
     stats = build_dataset(
@@ -292,5 +329,4 @@ def run_all(
     """Full flow from an existing (scanned + excluded) manifest to a dataset."""
     manifest = Manifest.load(cfg.manifest_path)
     run_hmr(cfg, manifest, limit=limit, workers=workers, gpus=gpus)
-    detect_mirroring(cfg, manifest)  # no-op unless cfg.auto_mirror is set
-    return build(cfg, manifest)
+    return build(cfg, manifest)  # build runs the mirror + quality passes

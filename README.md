@@ -417,9 +417,36 @@ python -m videotomocap mirror --correct  # and fix them
 
 Honest limits: it's a heuristic. It can't distinguish a mirrored clip from one
 where you genuinely used your non-dominant hand a lot, so it only flags
-*confident* disagreements (tune `mirror_margin`) and defaults to flag-not-flip.
-Gross motion (walking, sitting) is nearly symmetric and barely affected either
-way; handedness-specific tasks (writing, eating) are where it matters.
+*confident* disagreements (tune `mirror_margin`) and defaults to off (set it to
+`flag` or `correct`). Gross motion (walking, sitting) is nearly symmetric and
+barely affected either way; handedness-specific tasks (writing, eating) matter.
+
+### Automatic quality filtering (garbage clips)
+
+HMR over hours of footage produces some junk: frames where tracking teleports the
+root across the scene, a limb snaps 180° between frames, a NaN from a failed
+solve, or a clip where nothing moves. These pollute the dataset. The pipeline
+scores each clip's plausibility **from the recovered motion alone** — no video
+decode, no detector, just NumPy — and flags or drops the bad ones. Controlled by
+`quality_filter`:
+
+- `flag` (default) — annotate `quality_issues` in the manifest (`status` shows
+  the counts); nothing dropped.
+- `exclude` — also drop *hard* failures from the dataset.
+- `off` — skip.
+
+Findings, split into hard (physically impossible → drop candidates) and soft
+(valid but low-value):
+
+| issue | tier | meaning |
+|---|---|---|
+| `non_finite` | hard | NaN/Inf in the pose — failed solve |
+| `root_teleport` | hard | root faster than `quality_max_speed_ms` (12 m/s) — tracking jumped |
+| `pose_jump` | hard | a joint rotates > `quality_max_joint_step` (1.5 rad) in one frame |
+| `static_low_motion` | soft | barely moving — real, just low training value (never auto-dropped) |
+
+It runs automatically inside `run`/`build`. This is the cheap, safe win among the
+auto-tags — no heavy deps, and it directly cleans the training data.
 
 ## Layout
 
@@ -434,6 +461,7 @@ videotomocap/
   regions.py           body regions → SMPL joints (occlusion tagging)
   refine.py            optional post-proc: temporal de-jitter + anti-drift
   mirror.py            auto left/right-mirror detection + correction
+  quality.py           auto clip-quality assessment (teleports/jumps/NaN/static)
   cli.py               `python -m videotomocap ...`
   backends/
     base.py            HMRBackend ABC + rotation/SMPL-family conversion helpers

@@ -64,6 +64,14 @@ def test_load_config_happy_path_and_tuple_and_unknown_keys():
         assert_raises(ValueError, lambda: load_config(bad))
 
 
+def test_config_mode_fields_tolerate_yaml_off_boolean():
+    # YAML parses `auto_mirror: off` as the boolean False -> must become "off".
+    assert PipelineConfig(auto_mirror=False).auto_mirror == "off"
+    assert PipelineConfig(quality_filter=True).quality_filter == "flag"
+    assert PipelineConfig(auto_mirror="correct").auto_mirror == "correct"
+    assert_raises(ValueError, lambda: PipelineConfig(quality_filter="bogus"))
+
+
 def test_config_rejects_bad_use_frame_and_stringifies_paths():
     assert_raises(ValueError, lambda: PipelineConfig(use_frame="bogus"))
     cfg = PipelineConfig(footage_root="/a/b", backend_repo="/opt/x")

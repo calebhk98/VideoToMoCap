@@ -111,6 +111,10 @@ def cmd_status(args) -> int:
     corrected = sum(1 for c in manifest.clips if c.mirrored)
     if suspected or corrected:
         print(f"  mirrored: {suspected} suspected, {corrected} corrected")
+    low_q = sum(1 for c in manifest.clips if c.low_quality)
+    flagged_q = sum(1 for c in manifest.clips if c.quality_issues)
+    if flagged_q:
+        print(f"  quality: {flagged_q} flagged, {low_q} hard-failing")
     return 0
 
 
@@ -174,8 +178,7 @@ def cmd_build(args) -> int:
     """Aggregate anonymized clips into the AMASS-format dataset."""
     cfg = _cfg(args)
     manifest = _load_or_scan(cfg)
-    pipeline.detect_mirroring(cfg, manifest)  # honor auto_mirror before aggregating
-    stats = pipeline.build(cfg, manifest)
+    stats = pipeline.build(cfg, manifest)  # runs mirror + quality passes, then aggregates
     print("Dataset written to", cfg.dataset_dir)
     print(json.dumps(stats.as_dict(), indent=2))
     return 0

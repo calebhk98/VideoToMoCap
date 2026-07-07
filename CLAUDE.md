@@ -35,6 +35,8 @@ videotomocap/
   refine.py       Optional post-proc: temporal de-jitter + stationary anti-drift.
   mirror.py       Corpus-relative L/R mirror detection (handedness) + the exact
                   SMPL mirror transform. auto_mirror = off|flag|correct.
+  quality.py      Per-clip plausibility from the motion (teleport/pose-jump/NaN/
+                  static). quality_filter = off|flag|exclude.
   cli.py          `python -m videotomocap <cmd>`. Thin wrapper over the above.
   backends/
     base.py         HMRBackend ABC + rotation/SMPL conversion helpers (pure NumPy).

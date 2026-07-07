@@ -16,6 +16,20 @@ from typing import Any, Dict, List, Optional
 DEFAULT_VIDEO_EXTS = (".mp4", ".mov", ".mkv", ".avi", ".m4v", ".ts")
 
 
+def _coerce_mode(value, allowed: set, field_name: str) -> str:
+    """Normalize a string-enum config field, tolerating YAML's off/on booleans.
+
+    `off` -> the "off" mode; `on`/True -> "flag" (on-but-non-destructive). Any
+    other value must already be one of ``allowed`` or it's a loud error.
+    """
+    if isinstance(value, bool):
+        return "flag" if value else "off"
+    v = str(value).lower()
+    if v not in allowed:
+        raise ValueError(f"{field_name} must be one of {sorted(allowed)}, got {value!r}")
+    return v
+
+
 @dataclass
 class PipelineConfig:
     """All tunable knobs for the pipeline, plain enough to build in code or load from YAML."""
@@ -112,15 +126,31 @@ class PipelineConfig:
     HMR, before anonymization. Pure-NumPy, no weights; see ``videotomocap.refine``.
     Off by default -- turn on if your backend's output is jittery."""
 
-    auto_mirror: str = "flag"
+    auto_mirror: str = "off"
     """Automatic left/right-mirror handling for flipped (e.g. selfie) footage,
     detected corpus-relative from handedness (no per-video tags). One of:
-    'off' (skip), 'flag' (annotate suspected clips in the manifest, no data
+    'off' (default), 'flag' (annotate suspected clips in the manifest, no data
     change), 'correct' (also flip flagged clips' pose so handedness is fixed)."""
 
     mirror_margin: float = 0.15
     """Confidence margin for ``auto_mirror`` -- how far a clip's handedness must
     oppose the corpus consensus before it's flagged. Higher = fewer, surer flags."""
+
+    # --- Automatic quality filtering (from the recovered motion) ---------
+    quality_filter: str = "flag"
+    """Auto-detect degenerate/implausible clips from the motion itself. One of:
+    'off', 'flag' (annotate ``quality_issues`` in the manifest; default), 'exclude'
+    (also drop hard-failing clips from the dataset). Pure NumPy, no extra deps."""
+
+    quality_max_speed_ms: float = 12.0
+    """Root speed above this (m/s) is a tracking teleport, not human locomotion."""
+
+    quality_max_joint_step: float = 1.5
+    """Per-frame joint rotation jump above this (radians) is a tracking glitch."""
+
+    quality_min_motion: float = 1.0e-3
+    """Mean per-frame pose change below this = a near-static clip (low training
+    value); flagged as info, not auto-excluded."""
 
     # --- Dataset ---------------------------------------------------------
     target_fps: float = 30.0
@@ -178,6 +208,10 @@ class PipelineConfig:
             self.hand_repo = Path(self.hand_repo)
         if self.use_frame not in ("global", "incam"):
             raise ValueError(f"use_frame must be 'global' or 'incam', got {self.use_frame!r}")
+        # YAML parses bare off/on/yes/no as booleans, so `auto_mirror: off` arrives
+        # as False -- coerce these mode fields back to their string values.
+        self.auto_mirror = _coerce_mode(self.auto_mirror, {"off", "flag", "correct"}, "auto_mirror")
+        self.quality_filter = _coerce_mode(self.quality_filter, {"off", "flag", "exclude"}, "quality_filter")
 
     # Convenience paths -------------------------------------------------
     @property
