@@ -1,0 +1,36 @@
+# One isolated service; state lives in mounted volumes so nothing pollutes the
+# host and reruns are offline. First time:
+#
+#   docker compose build
+#   docker compose run --rm pipeline setup --backend gvhmr --method momask
+#   # (place your gated SMPL models under ./models/ -- see docker/README.md)
+#   docker compose run --rm pipeline all
+#
+# Drop your videos in ./dropzone. Outputs land in ./work.
+services:
+  pipeline:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: videotomocap:latest
+    # GPU passthrough (needs the NVIDIA Container Toolkit on the host).
+    # Comment this block out to run the GPU-free stages on a CPU-only host.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      - ./dropzone:/workspace/dropzone     # your input videos
+      - ./work:/workspace/work             # manifest, dataset, checkpoints
+      - ./configs:/workspace/configs       # editable configs
+      - ./models:/opt/models               # gated SMPL models + cached weights (NEVER in the image)
+      - ./repos:/opt/repos                 # cloned upstream repos (GVHMR/MoMask/...)
+    environment:
+      - VIDEO_CONFIG=configs/dropzone.yaml
+      - MODEL_CONFIG=configs/motion_model.yaml
+      # Offline after setup: uncomment to hard-fail on any accidental network use.
+      # - HF_HUB_OFFLINE=1
+      # - TRANSFORMERS_OFFLINE=1
