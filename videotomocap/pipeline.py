@@ -43,7 +43,8 @@ from .gpu import (
     resolve_devices,
 )
 from .ingest import Clip, Manifest
-from .pose import SMPL_NJOINTS, anonymize, resample_fps
+from .mirror import decide_mirrored, handedness_score, mirror_motion
+from .pose import SMPL_NJOINTS, SmplMotion, anonymize, resample_fps
 
 
 def _pose_path(cfg: PipelineConfig, clip: Clip) -> Path:
@@ -234,6 +235,38 @@ def _run_hmr(
     return manifest
 
 
+def detect_mirroring(cfg: PipelineConfig, manifest: Manifest) -> dict:
+    """Corpus-relative left/right mirror pass over the recovered clips.
+
+    Scores every clip's handedness, takes the corpus consensus as the subject's
+    true dominant side, flags the confident disagreements, and -- in 'correct'
+    mode -- flips their pose npz in place so the dataset handedness is consistent.
+    No-op when ``cfg.auto_mirror == 'off'``.
+    """
+    if cfg.auto_mirror == "off":
+        return {"flagged": 0, "corrected": 0}
+
+    done = manifest.by_status(ingest.POSE_DONE)
+    scores = {c.clip_id: handedness_score(SmplMotion.load_npz(_pose_path(cfg, c)))
+              for c in done if _pose_path(cfg, c).exists()}
+    flags = decide_mirrored(scores, margin=cfg.mirror_margin)
+
+    corrected = 0
+    for clip in done:
+        flagged = flags.get(clip.clip_id, False)
+        clip.suspected_mirrored = flagged
+        if flagged and cfg.auto_mirror == "correct":
+            path = _pose_path(cfg, clip)
+            mirror_motion(SmplMotion.load_npz(path)).save_npz(path)
+            clip.mirrored = True
+            corrected += 1
+    manifest.save(cfg.manifest_path)
+
+    n_flagged = sum(1 for v in flags.values() if v)
+    print(f"auto_mirror={cfg.auto_mirror}: {n_flagged} suspected mirrored, {corrected} corrected")
+    return {"flagged": n_flagged, "corrected": corrected}
+
+
 def build(cfg: PipelineConfig, manifest: Manifest):
     """Aggregate all anonymized clips into the AMASS-format training dataset."""
     done = manifest.by_status(ingest.POSE_DONE)
@@ -259,4 +292,5 @@ def run_all(
     """Full flow from an existing (scanned + excluded) manifest to a dataset."""
     manifest = Manifest.load(cfg.manifest_path)
     run_hmr(cfg, manifest, limit=limit, workers=workers, gpus=gpus)
+    detect_mirroring(cfg, manifest)  # no-op unless cfg.auto_mirror is set
     return build(cfg, manifest)

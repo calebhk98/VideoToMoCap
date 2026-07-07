@@ -46,6 +46,10 @@ class Clip:
     note: Optional[str] = None
     partial_body: bool = False
     """True if any body region is out of frame for this clip's camera."""
+    suspected_mirrored: bool = False
+    """Handedness disagrees with the corpus consensus -> likely a flipped clip."""
+    mirrored: bool = False
+    """This clip's pose was left/right corrected (``auto_mirror: correct``)."""
     unreliable_joints: List[int] = field(default_factory=list)
     """SMPL joint indices whose motion is HMR-inferred (out of frame), not
     observed -- derived from ``cfg.camera_occlusions`` / ``partial_body_cameras``.

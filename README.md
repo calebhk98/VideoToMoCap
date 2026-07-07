@@ -375,18 +375,51 @@ Any monocular video works — it doesn't have to be security footage.
   odometry/SLAM handles the motion. Variable frame rate is fine — every clip is
   resampled to `target_fps`. Portrait orientation is fine (rotation metadata is
   honored by the decoder).
-- **Selfie *videos* (front camera, arm's length): yes, with a caveat.** They're
-  usually upper-body / close-up, i.e. the partial-body case — tag the source with
+- **Selfie *videos* (front camera, arm's length): yes.** They're usually
+  upper-body / close-up, i.e. the partial-body case — tag the source with
   `camera_occlusions: {selfie: [legs]}` so the inferred legs are flagged, and
   prefer a close-up-robust backend (`smplestx`, `multihmr`, or `fusion` for good
-  hands). Front cameras sometimes save a *mirrored* file → left/right would be
-  swapped; check one clip and pre-flip if so.
+  hands). Front cameras sometimes save a *mirrored* file (left/right swapped) —
+  handled automatically, see below; no per-video tagging.
 - **A single selfie *photo*: no.** One still is one frame — below
   `min_clip_frames`, so it's dropped. This pipeline is about *motion over time*;
   it needs video (or a burst), not a snapshot.
 
 So: your phone clips are great input; selfie videos work if you tag them as
 upper-body; single photos don't (nothing moves to capture).
+
+### Mirrored / flipped footage — detected automatically (no tagging)
+
+Some clips (front-camera selfies especially) are horizontally flipped, which
+swaps left and right in the recovered motion and corrupts handedness. There's no
+metadata flag for this and a mirrored person still looks valid, so per-video
+pixel detection is unreliable — **but across your corpus it's you, and your
+handedness is consistent.** So the pipeline scores each clip's handedness from
+the recovered motion, takes the corpus consensus as your true dominant side
+(self-calibrating — a left-handed user isn't mass-flagged), and flags the clips
+that confidently disagree. Zero per-video tagging.
+
+Controlled by `auto_mirror` in the config:
+- `flag` (default) — annotate suspected clips in the manifest (`status` shows the
+  count); no data change. You can eyeball just the flagged few.
+- `correct` — also flip the flagged clips' pose so the dataset handedness is
+  consistent. The fix is exact (`mirror_motion`: the standard SMPL left/right
+  mirror, applied in motion space — equivalent to flipping the video, no HMR
+  re-run).
+- `off` — skip entirely.
+
+It runs automatically inside `run`/`build`, or on demand:
+
+```bash
+python -m videotomocap mirror            # flag suspected clips
+python -m videotomocap mirror --correct  # and fix them
+```
+
+Honest limits: it's a heuristic. It can't distinguish a mirrored clip from one
+where you genuinely used your non-dominant hand a lot, so it only flags
+*confident* disagreements (tune `mirror_margin`) and defaults to flag-not-flip.
+Gross motion (walking, sitting) is nearly symmetric and barely affected either
+way; handedness-specific tasks (writing, eating) are where it matters.
 
 ## Layout
 
@@ -400,6 +433,7 @@ videotomocap/
   gpu.py               GPU auto-detection + worker/device resolution
   regions.py           body regions → SMPL joints (occlusion tagging)
   refine.py            optional post-proc: temporal de-jitter + anti-drift
+  mirror.py            auto left/right-mirror detection + correction
   cli.py               `python -m videotomocap ...`
   backends/
     base.py            HMRBackend ABC + rotation/SMPL-family conversion helpers

@@ -51,6 +51,10 @@ keep_translation: true    # keep world trajectory (needed for grounded motion)
 use_frame: global         # 'global' = world-grounded, 'incam' = camera-relative
 refine: false             # true = temporal de-jitter + anti-drift post-processing
 
+# Auto-detect left/right-mirrored (flipped selfie) clips from corpus handedness.
+auto_mirror: flag         # off | flag (annotate) | correct (also flip flagged)
+mirror_margin: 0.15       # higher = fewer, surer flags
+
 # --- Dataset ---------------------------------------------------------------
 target_fps: 30.0
 min_clip_frames: 30       # drop motion snippets shorter than 1 s

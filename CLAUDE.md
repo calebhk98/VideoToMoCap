@@ -33,6 +33,8 @@ videotomocap/
                   (calibrate on clip 0), resolve device/worker counts.
   regions.py      Body region → SMPL joint indices (occlusion tagging).
   refine.py       Optional post-proc: temporal de-jitter + stationary anti-drift.
+  mirror.py       Corpus-relative L/R mirror detection (handedness) + the exact
+                  SMPL mirror transform. auto_mirror = off|flag|correct.
   cli.py          `python -m videotomocap <cmd>`. Thin wrapper over the above.
   backends/
     base.py         HMRBackend ABC + rotation/SMPL conversion helpers (pure NumPy).

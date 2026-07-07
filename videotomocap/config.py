@@ -112,6 +112,16 @@ class PipelineConfig:
     HMR, before anonymization. Pure-NumPy, no weights; see ``videotomocap.refine``.
     Off by default -- turn on if your backend's output is jittery."""
 
+    auto_mirror: str = "flag"
+    """Automatic left/right-mirror handling for flipped (e.g. selfie) footage,
+    detected corpus-relative from handedness (no per-video tags). One of:
+    'off' (skip), 'flag' (annotate suspected clips in the manifest, no data
+    change), 'correct' (also flip flagged clips' pose so handedness is fixed)."""
+
+    mirror_margin: float = 0.15
+    """Confidence margin for ``auto_mirror`` -- how far a clip's handedness must
+    oppose the corpus consensus before it's flagged. Higher = fewer, surer flags."""
+
     # --- Dataset ---------------------------------------------------------
     target_fps: float = 30.0
     """Frame rate every clip is resampled to before anonymization/export, so the

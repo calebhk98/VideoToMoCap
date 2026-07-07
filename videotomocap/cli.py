@@ -107,6 +107,10 @@ def cmd_status(args) -> int:
     frames = sum(c.n_frames or 0 for c in manifest.clips)
     if frames:
         print(f"  frames of motion recovered: {frames} (~{frames / cfg.target_fps / 3600:.2f} h)")
+    suspected = sum(1 for c in manifest.clips if c.suspected_mirrored)
+    corrected = sum(1 for c in manifest.clips if c.mirrored)
+    if suspected or corrected:
+        print(f"  mirrored: {suspected} suspected, {corrected} corrected")
     return 0
 
 
@@ -153,10 +157,24 @@ def cmd_hmr(args) -> int:
     return 0
 
 
+def cmd_mirror(args) -> int:
+    """Detect (and, per config, correct) left/right-mirrored clips corpus-wide."""
+    cfg = _cfg(args)
+    if getattr(args, "correct", False):
+        cfg.auto_mirror = "correct"
+    elif cfg.auto_mirror == "off":
+        cfg.auto_mirror = "flag"
+    manifest = _load_or_scan(cfg)
+    result = pipeline.detect_mirroring(cfg, manifest)
+    print(json.dumps(result, indent=2))
+    return 0
+
+
 def cmd_build(args) -> int:
     """Aggregate anonymized clips into the AMASS-format dataset."""
     cfg = _cfg(args)
     manifest = _load_or_scan(cfg)
+    pipeline.detect_mirroring(cfg, manifest)  # honor auto_mirror before aggregating
     stats = pipeline.build(cfg, manifest)
     print("Dataset written to", cfg.dataset_dir)
     print(json.dumps(stats.as_dict(), indent=2))
@@ -207,6 +225,10 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument("--vram-per-worker-mb", dest="vram_per_worker_mb", type=int,
                         help="VRAM/clip estimate (MiB) for auto sizing; skips calibration")
         sp.set_defaults(func=fn)
+
+    mr = sub.add_parser("mirror", help="detect (--correct to fix) left/right-mirrored clips")
+    mr.add_argument("--correct", action="store_true", help="flip flagged clips (else just flag)")
+    mr.set_defaults(func=cmd_mirror)
 
     sub.add_parser("build", help="aggregate anonymized clips into an AMASS dataset").set_defaults(func=cmd_build)
     return p
