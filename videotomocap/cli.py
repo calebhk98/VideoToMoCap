@@ -1,36 +1,58 @@
 """Command-line interface: ``python -m videotomocap <command>``.
 
-Typical session
----------------
-    # 1. discover all footage
-    python -m videotomocap scan --config configs/pipeline.yaml
+Config-first: put every knob (footage root, backend, exclude_patterns, gpus, ...)
+in a YAML and the commands read it -- flags are optional overrides. The config is
+auto-discovered (``--config`` > ``$VIDEOTOMOCAP_CONFIG`` > ./videotomocap.yaml >
+./configs/pipeline.yaml), so the common case needs no flags at all:
 
-    # 2. pull out the two family visits before anything is processed
-    python -m videotomocap exclude --pattern "*/2024-12-24/*" --pattern "*/2025-06-*"
+    python -m videotomocap run        # scan -> exclude -> hmr -> build, from config
 
-    # 3. sanity-check what will be processed
-    python -m videotomocap status
+Individual steps, each reading the same config:
+    python -m videotomocap scan       # (re)build manifest; applies exclude_patterns
+    python -m videotomocap status     # what will be processed
+    python -m videotomocap hmr        # human-mesh recovery (resumable)
+    python -m videotomocap build      # aggregate into the AMASS dataset
 
-    # 4. run human-mesh recovery (GPU box; resumable, --limit to smoke-test)
-    python -m videotomocap hmr --limit 5
-
-    # 5. aggregate the anonymized clips into an AMASS-format dataset
-    python -m videotomocap build
+Overrides when you want them: --limit, --gpus, --workers-per-gpu, --config, etc.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
+from typing import Optional
 
 from . import ingest, pipeline
 from .config import PipelineConfig, load_config
 from .ingest import Manifest
 
 
+# Where we look for a config when --config isn't passed, in order. This is what
+# lets you keep every knob in one YAML and just run `videotomocap run`.
+_DEFAULT_CONFIG_NAMES = ("videotomocap.yaml", "videotomocap.yml", "configs/pipeline.yaml")
+
+
+def _discover_config(explicit) -> Optional[str]:
+    """Resolve which config to load: --config, else $VIDEOTOMOCAP_CONFIG, else a
+    conventional file in the working dir. Returns None -> built-in defaults."""
+    if explicit:
+        return explicit
+    env = os.environ.get("VIDEOTOMOCAP_CONFIG")
+    if env:
+        return env
+    for name in _DEFAULT_CONFIG_NAMES:
+        if Path(name).exists():
+            return name
+    return None
+
+
 def _cfg(args) -> PipelineConfig:
-    cfg = load_config(args.config) if args.config else PipelineConfig()
+    path = _discover_config(args.config)
+    if path:
+        print(f"Using config: {path}")
+    cfg = load_config(path) if path else PipelineConfig()
     if getattr(args, "footage_root", None):
         cfg.footage_root = Path(args.footage_root)
     if getattr(args, "work_root", None):
@@ -116,12 +138,17 @@ def _apply_parallel_overrides(cfg, args) -> None:
         cfg.vram_per_worker_mb = args.vram_per_worker_mb
 
 
+def _limit(args, cfg):
+    """--limit overrides config; otherwise use cfg.limit (may be None = all)."""
+    return args.limit if args.limit is not None else cfg.limit
+
+
 def cmd_hmr(args) -> int:
     """Run human-mesh recovery on pending/failed clips, then report status."""
     cfg = _cfg(args)
     _apply_parallel_overrides(cfg, args)
     manifest = _load_or_scan(cfg)
-    pipeline.run_hmr(cfg, manifest, limit=args.limit, workers=args.workers, gpus=_gpus(args))
+    pipeline.run_hmr(cfg, manifest, limit=_limit(args, cfg), workers=args.workers, gpus=_gpus(args))
     cmd_status(args)
     return 0
 
@@ -141,7 +168,7 @@ def cmd_run(args) -> int:
     cfg = _cfg(args)
     _apply_parallel_overrides(cfg, args)
     _load_or_scan(cfg)
-    stats = pipeline.run_all(cfg, limit=args.limit, workers=args.workers, gpus=_gpus(args))
+    stats = pipeline.run_all(cfg, limit=_limit(args, cfg), workers=args.workers, gpus=_gpus(args))
     print("Dataset written to", cfg.dataset_dir)
     print(json.dumps(stats.as_dict(), indent=2))
     return 0

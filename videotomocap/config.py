@@ -31,9 +31,22 @@ class PipelineConfig:
     """How many path components below ``footage_root`` name the camera. With a
     layout of ``footage/cam03/2024-05-01/clip.mp4`` a depth of 1 -> camera 'cam03'."""
 
+    exclude_patterns: List[str] = field(default_factory=list)
+    """Glob patterns (against each clip's relative path) auto-excluded on ``scan``
+    -- the set-once-and-forget home for the family-visit ranges, so you never
+    retype ``exclude --pattern``. Manual ``include`` still wins and survives
+    re-scans."""
+
+    exclude_ids: List[str] = field(default_factory=list)
+    """Specific clip ids to auto-exclude on ``scan`` (companion to patterns)."""
+
     # --- Working directories --------------------------------------------
     work_root: Path = Path("work")
     """Where the manifest and all intermediate artifacts are written."""
+
+    limit: Optional[int] = None
+    """Optional cap on clips processed per ``hmr``/``run`` (mostly for smoke
+    tests). ``--limit`` overrides it. None = process everything."""
 
     # --- HMR backend -----------------------------------------------------
     backend: str = "gvhmr"

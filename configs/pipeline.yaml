@@ -7,6 +7,13 @@ work_root: work                            # all outputs land here
 video_exts: [".mp4", ".mov", ".mkv"]
 camera_dir_depth: 1                        # footage/<camera>/<date>/clip.mp4
 
+# Auto-excluded on every scan -> set the family visits once, never retype them.
+exclude_patterns:
+  - "*/2024-12-24/*"
+  - "*/2025-06-1*"
+# exclude_ids: []                          # or exclude specific clip ids
+# limit:                                    # cap clips per run (smoke test); null = all
+
 # --- HMR backend -----------------------------------------------------------
 # Body-only: gvhmr|wham|tram. Whole-body SMPL-X (hands): smplestx|whac|osx|
 # hand4whole|multihmr. Combined: fusion (see configs/fusion_hands.yaml). noop=test.

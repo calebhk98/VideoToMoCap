@@ -217,27 +217,45 @@ backend_python: /opt/miniconda3/envs/gvhmr/bin/python
 
 ## Usage
 
+**Everything lives in the config — you don't need to remember flags.** Set your
+options once (footage root, backend, exclusions, GPUs, ...) in a YAML, and the
+commands read them. The config is auto-discovered, so you don't even pass
+`--config`: put a `videotomocap.yaml` in your working directory (or point
+`$VIDEOTOMOCAP_CONFIG` at one), and:
+
 ```bash
-# 1. discover all footage into a manifest (nothing is copied/transcoded)
-python -m videotomocap --config configs/pipeline.yaml scan
+python -m videotomocap run      # scan → exclude → hmr → build, all from the config
+```
 
-# 2. exclude the two family visits BEFORE processing (glob on path)
-python -m videotomocap --config configs/pipeline.yaml \
-    exclude --pattern "*/2024-12-24/*" --pattern "*/2025-06-1*"
+That's the whole pipeline. Under the hood `run` = `hmr` + `build`, and `scan`
+runs automatically the first time. The family visits are excluded because they're
+listed once in the config (`exclude_patterns`), not retyped each run:
 
-# 3. see what will be processed
-python -m videotomocap --config configs/pipeline.yaml status
+```yaml
+# videotomocap.yaml
+footage_root: dropzone
+backend: gvhmr
+backend_repo: /opt/GVHMR
+backend_python: /opt/miniconda3/envs/gvhmr/bin/python
+exclude_patterns: ["*/2024-12-24/*", "*/2025-06-1*"]   # the family visits, set once
+gpus: auto
+workers_per_gpu: auto
+```
 
-# 4. run HMR + anonymize (GPU box; resumable, checkpoints every clip)
-python -m videotomocap --config configs/pipeline.yaml hmr --limit 5   # smoke test
-python -m videotomocap --config configs/pipeline.yaml hmr             # the rest
+Individual steps (each still reads the config; flags are optional overrides):
 
-# 5. aggregate into an AMASS-format dataset
-python -m videotomocap --config configs/pipeline.yaml build
-
-# then hand off to pipeline 2
+```bash
+python -m videotomocap scan       # (re)build the manifest; applies exclude_patterns
+python -m videotomocap status     # what will be processed
+python -m videotomocap hmr        # HMR + anonymize (resumable, checkpoints each clip)
+python -m videotomocap build      # aggregate into the AMASS dataset
 python motion_model/prepare_mdm_data.py --dataset work/dataset --out work/mdm_data
 ```
+
+Need a one-off override? Any config field that matters at the CLI has a flag
+(`--limit 5` for a smoke test, `--gpus 0`, `--workers-per-gpu 2`, `--config other.yaml`,
+`--footage-root ...`) — but you never *have* to use them. Extra ad-hoc exclusions
+still work too: `videotomocap exclude --pattern "*/badcam/*"`.
 
 The manifest is the single source of truth; every stage is idempotent and
 resumable, so a crash 400 GB into the backlog just means re-running the command.

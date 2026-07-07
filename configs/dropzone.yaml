@@ -8,6 +8,9 @@ work_root: work
 video_exts: [".mp4", ".mov", ".mkv", ".avi", ".m4v", ".ts"]
 camera_dir_depth: 1
 
+# Auto-excluded on scan (set once). e.g. the family visits:
+exclude_patterns: []   # ["*/2024-12-24/*"]
+
 # --- HMR backend ---
 # Set to your installed method. `noop` needs nothing (synthetic, for dry runs).
 backend: gvhmr

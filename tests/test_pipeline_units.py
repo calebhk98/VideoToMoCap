@@ -9,6 +9,7 @@ Runs under pytest OR directly: `python tests/test_pipeline_units.py`.
 
 from __future__ import annotations
 
+import os
 import pickle
 import sys
 import tempfile
@@ -101,6 +102,45 @@ def test_exclude_by_id_and_include_and_idempotent():
         assert ingest.exclude(m, clip_ids=[cid]) == 0              # already excluded -> no-op
         assert ingest.include(m, clip_ids=[cid]) == 1
         assert m.get(cid).status == ingest.PENDING
+
+
+def test_scan_applies_config_exclusions():
+    with tempfile.TemporaryDirectory() as tmp:
+        cfg = _noop_cfg(Path(tmp))
+        cfg.exclude_patterns = ["*/2024-12-24/*"]  # the family visit
+        m = ingest.scan(cfg)
+        excluded = m.by_status(ingest.EXCLUDED)
+        assert len(excluded) == 1 and "2024-12-24" in excluded[0].rel_path
+        # a manual include survives a later refresh (config re-exclude doesn't override it)
+        ingest.include(m, patterns=["*/2024-12-24/*"])
+        m2 = ingest.refresh(cfg, m)
+        assert not m2.by_status(ingest.EXCLUDED)
+
+
+def test_discover_config_precedence():
+    from videotomocap import cli
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        (tmp / "videotomocap.yaml").write_text("backend: noop\n")
+        assert cli._discover_config("explicit.yaml") == "explicit.yaml"      # --config wins
+        cwd = os.getcwd()
+        os.chdir(tmp)
+        try:
+            os.environ.pop("VIDEOTOMOCAP_CONFIG", None)
+            assert cli._discover_config(None) == "videotomocap.yaml"         # discovered in cwd
+            os.environ["VIDEOTOMOCAP_CONFIG"] = "from_env.yaml"
+            assert cli._discover_config(None) == "from_env.yaml"             # env beats cwd file
+        finally:
+            os.environ.pop("VIDEOTOMOCAP_CONFIG", None)
+            os.chdir(cwd)
+
+
+def test_limit_falls_back_to_config():
+    from videotomocap import cli
+    ns = lambda **kw: type("A", (), kw)()
+    assert cli._limit(ns(limit=5), PipelineConfig(limit=2)) == 5     # flag overrides
+    assert cli._limit(ns(limit=None), PipelineConfig(limit=2)) == 2  # config used
+    assert cli._limit(ns(limit=None), PipelineConfig(limit=None)) is None
 
 
 def test_manifest_get_missing_raises_and_scan_missing_root():
@@ -394,68 +434,7 @@ def test_refine_flag_runs_end_to_end():
         assert len(m.by_status(ingest.POSE_DONE)) == 3
 
 
-def test_get_backend_unknown_raises():
-    assert_raises(BackendError, lambda: get_backend(PipelineConfig(backend="bogus")))
-
-
-def test_require_repo_and_run_cmd_errors():
-    from videotomocap.backends.gvhmr import GVHMRBackend
-    be = GVHMRBackend(PipelineConfig(backend="gvhmr", backend_repo=None))
-    assert_raises(BackendError, be._require_repo)
-    be2 = GVHMRBackend(PipelineConfig(backend="gvhmr", backend_repo="/no/such/repo"))
-    assert_raises(BackendError, be2._require_repo)
-    # missing interpreter and nonzero exit both surface as BackendError
-    assert_raises(BackendError, lambda: be._run_cmd(["/no/such/interpreter"]))
-    assert_raises(BackendError, lambda: be._run_cmd([sys.executable, "-c", "import sys; sys.exit(3)"]))
-
-
-def test_wham_parse_track_selects_world_and_raises():
-    from videotomocap.backends.wham import WHAMBackend
-    be = WHAMBackend(PipelineConfig(backend="wham", use_frame="global", target_fps=30.0))
-    aa = np.zeros((5, 72), np.float32)
-    world = np.ones((5, 72), np.float32) * 0.1
-    tr = {"pose": aa, "trans": np.zeros((5, 3), np.float32),
-          "pose_world": world, "trans_world": np.ones((5, 3), np.float32)}
-    m = be._parse_track(tr, Path("clip.mp4"), Path("x.pkl"))
-    assert m.poses.shape == (5, 72) and np.allclose(m.trans, 1.0)  # picked world frame
-    assert_raises(BackendError, lambda: be._parse_track({"betas": np.zeros(10)}, Path("c"), Path("p")))
-
-
-def test_wham_longest_track():
-    from videotomocap.backends.wham import WHAMBackend
-    data = {"a": {"pose": np.zeros((3, 72))}, "b": {"pose": np.zeros((9, 72))}}
-    assert len(WHAMBackend._longest_track(data)["pose"]) == 9
-    assert_raises(BackendError, lambda: WHAMBackend._longest_track({}))
-
-
-def test_tram_parse_selects_world_and_raises():
-    from videotomocap.backends.base import axis_angle_to_matrix
-    from videotomocap.backends.tram import TRAMBackend
-    be = TRAMBackend(PipelineConfig(backend="tram", use_frame="global", target_fps=30.0))
-    with tempfile.TemporaryDirectory() as tmp:
-        rotmat = axis_angle_to_matrix(np.zeros((6, 24, 3)))  # (6,24,3,3) identity
-        d = {"pred_rotmat": rotmat, "pred_trans": np.zeros((6, 3), np.float32),
-             "pred_trans_world": np.ones((6, 3), np.float32), "pred_shape": np.zeros(10, np.float32)}
-        f = Path(tmp) / "hps_track_1.npy"
-        np.save(f, d, allow_pickle=True)
-        m = be._parse(f, Path("clip.mp4"))
-        assert m.poses.shape == (6, 72) and np.allclose(m.trans, 1.0)  # world translation
-        # missing rotmat -> BackendError
-        bad = Path(tmp) / "bad.npy"
-        np.save(bad, {"pred_trans": np.zeros((2, 3))}, allow_pickle=True)
-        assert_raises(BackendError, lambda: be._parse(bad, Path("c")))
-
-
-def test_gvhmr_find_results_layouts_and_missing():
-    from videotomocap.backends.gvhmr import GVHMRBackend
-    be = GVHMRBackend(PipelineConfig(backend="gvhmr"))
-    with tempfile.TemporaryDirectory() as tmp:
-        out = Path(tmp)
-        (out / "clip").mkdir()
-        (out / "clip" / "hmr4d_results.pt").write_bytes(b"x")
-        assert be._find_results(out, "clip").name == "hmr4d_results.pt"
-    with tempfile.TemporaryDirectory() as tmp:
-        assert_raises(BackendError, lambda: be._find_results(Path(tmp), "clip"))
+# (backend adapter internals -> tests/test_backends.py)
 
 
 # --- CLI --------------------------------------------------------------------

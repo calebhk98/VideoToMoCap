@@ -148,7 +148,10 @@ def scan(cfg: PipelineConfig) -> Manifest:
                 unreliable_joints=unreliable,
             )
         )
-    return Manifest(footage_root=str(root), clips=clips)
+    manifest = Manifest(footage_root=str(root), clips=clips)
+    # Apply config-defined exclusions so they don't have to be retyped each run.
+    exclude(manifest, clip_ids=cfg.exclude_ids, patterns=cfg.exclude_patterns, note="excluded via config")
+    return manifest
 
 
 def _unreliable_joints_for(cfg: PipelineConfig, camera: str) -> List[int]:
