@@ -27,6 +27,7 @@ from pathlib import Path
 
 
 def load_index(dataset_dir: Path) -> dict:
+    """Load Pipeline 1's clip index, failing loudly if ``build`` hasn't run yet."""
     idx = dataset_dir / "index.json"
     if not idx.exists():
         sys.exit(f"No index.json in {dataset_dir}; run `videotomocap build` first.")
@@ -34,6 +35,7 @@ def load_index(dataset_dir: Path) -> dict:
 
 
 def make_skeleton(out: Path) -> dict:
+    """Create the HumanML3D-style directory layout under ``out`` and return its paths."""
     dirs = {
         "amass": out / "amass_copy",
         "joints": out / "new_joints",
@@ -46,6 +48,7 @@ def make_skeleton(out: Path) -> dict:
 
 
 def write_splits(out: Path, clips: list) -> None:
+    """Write train/val/test id lists from Pipeline 1's per-clip split."""
     train = [c["clip_id"] for c in clips if c.get("split") == "train"]
     val = [c["clip_id"] for c in clips if c.get("split") == "val"]
     (out / "train.txt").write_text("\n".join(train) + "\n")
@@ -56,6 +59,7 @@ def write_splits(out: Path, clips: list) -> None:
 
 
 def scaffold_texts(dirs: dict, clips: list) -> None:
+    """Ensure every clip has a caption file, leaving existing ones untouched."""
     for c in clips:
         t = dirs["texts"] / f"{c['clip_id']}.txt"
         if not t.exists():
@@ -83,12 +87,13 @@ def extract_features(args, clips: list, dirs: dict) -> None:
         f"  2. Run HumanML3D's raw_pose_processing + motion_representation notebooks/scripts\n"
         f"     ({hml}) with SMPL model at {smpl} to produce new_joint_vecs/*.npy (263-d).\n"
         f"  3. Point MDM's --data_dir at {dirs['vecs'].parent}.\n"
-        "  (HumanML3D indexes SMPL poses[:66] for its 22 joints; our AMASS npz already\n"
-        "   stores SMPL-72 in the first 72 slots, so it consumes cleanly.)\n"
+        "  (HumanML3D indexes SMPL-H poses[:66] for its 22 joints; our AMASS npz already\n"
+        "   stores the SMPL body in those first 66 slots, so it consumes cleanly.)\n"
     )
 
 
 def main() -> int:
+    """Build the MDM data skeleton and, if assets are supplied, hand off feature extraction."""
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dataset", required=True, type=Path, help="work/dataset from Pipeline 1")
     ap.add_argument("--out", required=True, type=Path, help="output MDM data dir")

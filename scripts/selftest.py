@@ -41,12 +41,14 @@ def make_fake_footage(root: Path) -> None:
 
 
 def check(cond: bool, msg: str) -> None:
+    """Assert-and-print: raise with ``msg`` on failure, else echo it as an ok line."""
     if not cond:
         raise AssertionError(msg)
     print(f"  ok: {msg}")
 
 
 def main() -> int:
+    """Drive the full pipeline in a scratch temp dir and assert every invariant holds."""
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         footage = tmp / "footage"

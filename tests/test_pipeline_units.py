@@ -26,6 +26,7 @@ from videotomocap.ingest import Manifest
 
 
 def assert_raises(exc, fn):
+    """Tiny pytest.raises stand-in so tests run under plain `python` too."""
     try:
         fn()
     except exc:
