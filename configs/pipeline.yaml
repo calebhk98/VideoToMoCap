@@ -1,0 +1,81 @@
+# Example pipeline config. Copy and edit for your machine.
+# Every key maps to a field on videotomocap.config.PipelineConfig.
+
+# --- Ingestion -------------------------------------------------------------
+footage_root: /data/security_footage      # tree of per-camera folders
+work_root: work                            # all outputs land here
+video_exts: [".mp4", ".mov", ".mkv"]
+camera_dir_depth: 1                        # footage/<camera>/<date>/clip.mp4
+
+# Auto-excluded on every scan -> set the family visits once, never retype them.
+exclude_patterns:
+  - "*/2024-12-24/*"
+  - "*/2025-06-1*"
+# exclude_ids: []                          # or exclude specific clip ids
+# limit:                                    # cap clips per run (smoke test); null = all
+
+# --- HMR backend -----------------------------------------------------------
+# Body-only: gvhmr|wham|tram. Whole-body SMPL-X (hands): smplestx|whac|osx|
+# hand4whole|multihmr. Combined: fusion (see configs/fusion_hands.yaml). noop=test.
+backend: gvhmr
+backend_repo: /opt/GVHMR                   # cloned upstream checkout
+backend_python: /opt/miniconda3/envs/gvhmr/bin/python
+backend_extra_args: []
+
+# Corner/eye-level cameras that never move -> skip visual odometry (GVHMR -s).
+# Rotating/pan cameras: leave OUT of this list so SLAM/VO handles the motion.
+static_cameras:
+  - cam01_corner
+  - cam02_corner
+
+# Body parts a camera can't reliably see -> those joints are tagged unreliable
+# (HMR-inferred, not observed) per clip, and a joint_valid mask flows to the
+# dataset so you can filter/mask them. Regions: legs|left_leg|right_leg|feet|
+# arms|left_arm|right_arm|hands|head (see videotomocap/regions.py).
+camera_occlusions: {}
+#  cam_desk: [legs]      # waist-up view
+#  cam_high: [head]      # head cropped
+partial_body_cameras: []   # shorthand: same as camera_occlusions {cam: [legs]}
+
+# --- Parallelism -----------------------------------------------------------
+gpus: auto                 # 'auto' detects your GPUs; or list explicitly ["0","1"]
+workers_per_gpu: auto      # 'auto' sizes N from free VRAM (calibrates clip 0), or an int
+# vram_per_worker_mb:      # set to skip calibration (VRAM one clip needs, MiB)
+vram_headroom_mb: 2000     # always leave this much free per card
+max_workers_per_gpu: 8     # ceiling for auto sizing
+# workers:                 # override the total worker count directly
+
+# --- Anonymization ---------------------------------------------------------
+drop_shape: true          # discard SMPL betas -> no body identity leaves here
+keep_translation: true    # keep world trajectory (needed for grounded motion)
+use_frame: global         # 'global' = world-grounded, 'incam' = camera-relative
+refine: false             # true = temporal de-jitter + anti-drift post-processing
+refine_method: savgol     # savgol | variational (HTD-Refine accel-penalized smoother)
+
+# Auto-detect left/right-mirrored (flipped selfie) clips from corpus handedness.
+auto_mirror: off          # off | flag (annotate) | correct (also flip flagged)
+mirror_margin: 0.15       # higher = fewer, surer flags
+
+# Auto-detect degenerate clips (teleports, pose jumps, NaNs, dead-still) from the
+# recovered motion -- pure NumPy, no extra deps.
+quality_filter: flag      # off | flag (annotate) | exclude (drop hard failures)
+# quality_max_speed_ms: 12.0     # root speed above this = tracking teleport
+# quality_max_joint_step: 1.5    # per-frame joint jump (rad) above this = glitch
+
+# Auto-mark joints that never move in a clip as unreliable (proxy for out-of-frame,
+# masked via joint_valid). Complements the manual camera_occlusions above.
+auto_occlusion: off       # off | flag
+
+# Unsupervised motion clusters -> per-clip action_cluster pseudo-label (for the
+# motion model to condition on). 0 = off.
+cluster_actions: 0        # e.g. 8
+
+# Raw-video pre-analysis (needs opencv-python; pip install opencv-python).
+skip_empty: off           # skip HMR on clips with no activity (empty footage)
+auto_camera_motion: off   # off | flag -- detect static cams to skip visual odometry
+
+# --- Dataset ---------------------------------------------------------------
+target_fps: 30.0
+min_clip_frames: 30       # drop motion snippets shorter than 1 s
+val_fraction: 0.05
+gender: neutral

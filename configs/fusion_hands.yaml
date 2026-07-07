@@ -1,0 +1,46 @@
+# High-detail-hands config: body backend + dedicated hand net, grafted to SMPL-X.
+# Usage: python -m videotomocap --config configs/fusion_hands.yaml run
+#
+# Tuned for a dual-3090 box: run the body tool and hand tool from their own
+# conda envs (they have incompatible deps). Point each *_repo/*_python at its
+# checkout. Put CUDA_VISIBLE_DEVICES in each env's launcher to split GPUs.
+
+footage_root: dropzone
+work_root: work
+
+# --- Fusion backend ---
+backend: fusion
+
+# Body + camera. Use 'whac' for moving/handheld cameras (world-grounded SMPL-X),
+# or 'gvhmr'/'wham'/'tram' for body-only + faster bulk throughput.
+body_backend: whac
+backend_repo: /opt/WHAC
+backend_python: /opt/miniconda3/envs/whac/bin/python
+
+# Articulated fingers. 'wilor' (fast, robust, auto left/right) or 'hamer'.
+hand_backend: wilor
+hand_repo: /opt/WiLoR
+hand_python: /opt/miniconda3/envs/wilor/bin/python
+
+# Advanced: compose the hand-net wrist into the body kinematic chain. Off keeps
+# the body's wrist and grafts only finger articulation (safer default).
+graft_wrist: false
+
+# Static cameras (top-folder names) skip visual odometry where the body backend
+# supports it.
+static_cameras: []
+
+# --- Parallelism ---
+gpus: auto                 # detect GPUs; fusion runs body+hand tools per clip
+workers_per_gpu: 1         # fusion is heavier (2 models) -> keep low unless VRAM allows
+
+# --- Anonymization ---
+drop_shape: true
+keep_translation: true
+use_frame: global
+
+# --- Dataset ---
+target_fps: 30.0
+min_clip_frames: 30
+val_fraction: 0.05
+gender: neutral

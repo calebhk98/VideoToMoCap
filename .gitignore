@@ -1,0 +1,31 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+venv/
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+
+# Pipeline outputs / large artifacts — never commit footage or motion data
+work/
+footage/
+*.pt
+*.pkl
+*.npz
+*.npy
+!tests/**/*.npz
+
+# Video files anywhere — footage must never land in git
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.m4v
+*.ts
+
+# Video drop folder: keep the folder + docs, ignore whatever media is dropped in
+dropzone/*
+!dropzone/README.md
+!dropzone/.gitkeep

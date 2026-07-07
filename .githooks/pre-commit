@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Pre-commit gate: block commits that add oversized or over-indented files.
+# Enable once per clone with:  git config core.hooksPath .githooks
+# (scripts/install_hooks.sh does this for you.)
+set -euo pipefail
+
+# Prefer python3, fall back to python.
+PY="$(command -v python3 || command -v python || true)"
+if [ -z "$PY" ]; then
+  echo "pre-commit: no python interpreter found; skipping code-health check" >&2
+  exit 0
+fi
+
+exec "$PY" "$(git rev-parse --show-toplevel)/scripts/check_code_health.py"
