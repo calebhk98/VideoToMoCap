@@ -33,7 +33,15 @@ from . import ingest
 from .backends import get_backend
 from .config import PipelineConfig
 from .dataset import build_dataset
-from .gpu import resolve_devices, resolve_workers
+from . import gpu
+from .gpu import (
+    DEFAULT_VRAM_PER_WORKER_MB,
+    distribute_workers,
+    expand_devices,
+    measure_peak_vram,
+    plan_workers_per_gpu,
+    resolve_devices,
+)
 from .ingest import Clip, Manifest
 from .pose import SMPL_NJOINTS, anonymize, resample_fps
 
@@ -94,19 +102,79 @@ def run_hmr(
     limit: Optional[int] = None,
     workers: Optional[int] = None,
     gpus=None,
+    free_mem_fn=None,
 ) -> Manifest:
     """Process all processable clips, in parallel across GPUs. Failures recorded.
 
-    Devices come from ``gpus`` (or ``cfg.gpus``; 'auto' detects them). Worker
-    count comes from ``workers`` (or ``cfg.workers``; auto = detected GPUs x
-    ``cfg.workers_per_gpu``). One bad clip never kills the batch, and the
-    manifest is checkpointed after every clip so the run stays resumable.
+    Devices come from ``gpus`` (or ``cfg.gpus``; 'auto' detects them). The number
+    of clips per GPU comes from ``cfg.workers_per_gpu`` -- an int, or ``'auto'``
+    to size it from each card's free VRAM (calibrating on the first clip if no
+    ``vram_per_worker_mb`` is set). ``workers`` overrides the total directly. One
+    bad clip never kills the batch; the manifest is checkpointed after each clip.
     """
     devices = resolve_devices(gpus if gpus is not None else cfg.gpus)
-    n_workers = resolve_workers(
-        workers if workers is not None else cfg.workers, devices, cfg.workers_per_gpu
+    todo = _todo(manifest, limit)
+    plan, todo = _plan_workers(cfg, manifest, devices, todo, workers, free_mem_fn)
+    expanded = expand_devices(devices, plan)
+    return _run_hmr(cfg, manifest, todo, workers=max(1, len(expanded)), devices=expanded)
+
+
+def _plan_workers(cfg, manifest, devices, todo, workers_override, free_mem_fn):
+    """Return ({device: worker_count}, remaining_todo).
+
+    Auto mode may consume the first clip to calibrate VRAM, so it also returns the
+    (possibly shortened) todo list.
+    """
+    explicit = workers_override if workers_override is not None else (
+        cfg.workers if isinstance(cfg.workers, int) else None
     )
-    return _run_hmr(cfg, manifest, workers=n_workers, devices=devices, limit=limit)
+    if explicit:
+        return distribute_workers(explicit, devices), todo
+
+    wpg = cfg.workers_per_gpu
+    if isinstance(wpg, str) and wpg.lower() == "auto":
+        return _auto_plan(cfg, manifest, devices, todo, free_mem_fn)
+    return {d: max(1, int(wpg)) for d in devices}, todo
+
+
+def _auto_plan(cfg, manifest, devices, todo, free_mem_fn):
+    """Size workers-per-GPU from free VRAM; calibrate on clip 0 if no estimate."""
+    probe = free_mem_fn or gpu.gpu_free_memory
+    real = [d for d in devices if d is not None]
+    if not real or not probe():
+        return {d: 1 for d in devices}, todo  # no GPU info -> one clip per device
+
+    est = cfg.vram_per_worker_mb
+    remaining = todo
+    if est is None and todo:
+        est, remaining = _calibrate(cfg, manifest, real[0], todo, probe)
+    est = est or DEFAULT_VRAM_PER_WORKER_MB
+
+    free = probe()  # re-read after the calibration clip released its memory
+    fitted = plan_workers_per_gpu(free, est, cfg.vram_headroom_mb, cfg.max_workers_per_gpu)
+    plan = {d: (fitted.get(d, 1) if d is not None else 1) for d in devices}
+    print(f"Auto workers/GPU from ~{est} MiB/clip, {cfg.vram_headroom_mb} MiB headroom: {plan}")
+    return plan, remaining
+
+
+def _calibrate(cfg, manifest, device, todo, probe):
+    """Process clip 0 alone while sampling VRAM; return (peak_mb_or_None, rest)."""
+    clip = todo[0]
+    est = measure_peak_vram(lambda: _process_and_record(cfg, manifest, clip, device), device, free_mem_fn=probe)
+    print(f"Calibrated ~{est} MiB/clip on gpu{device}" if est else "Calibration unavailable; using estimate")
+    return (est if est and est > 0 else None), todo[1:]
+
+
+def _process_and_record(cfg: PipelineConfig, manifest: Manifest, clip: Clip, device: Optional[str]) -> None:
+    """Compute + save one clip and update its manifest state (single-threaded)."""
+    try:
+        clip.n_frames = _compute_and_save(_clone_for_device(cfg, device), clip)
+        clip.status = ingest.POSE_DONE
+        clip.error = None
+    except Exception as exc:  # noqa: BLE001 -- isolate per-clip failure
+        clip.status = ingest.FAILED
+        clip.error = f"{type(exc).__name__}: {exc}"
+    manifest.save(cfg.manifest_path)
 
 
 def _clone_for_device(cfg: PipelineConfig, device: Optional[str]) -> PipelineConfig:
@@ -119,19 +187,18 @@ def _clone_for_device(cfg: PipelineConfig, device: Optional[str]) -> PipelineCon
 def _run_hmr(
     cfg: PipelineConfig,
     manifest: Manifest,
+    todo: List[Clip],
     *,
     workers: int,
     devices: List[Optional[str]],
-    limit: Optional[int] = None,
 ) -> Manifest:
-    """Fan clips out over a thread pool, round-robin across ``devices``.
+    """Fan ``todo`` clips out over a thread pool, round-robin across ``devices``.
 
     Threads (not processes) suffice: each clip's heavy work is in the backend
     subprocess, which releases the GIL, so N threads drive N concurrent
-    subprocesses. ``workers`` > ``len(devices)`` packs multiple clips onto a
-    card (overlapping GPU compute with the next clip's decode/IO).
+    subprocesses. ``devices`` is already expanded (a card repeated N times packs
+    N clips onto it), so len(devices) == workers.
     """
-    todo = _todo(manifest, limit)
     total = len(todo)
     lock = threading.Lock()
     counter = {"done": 0}

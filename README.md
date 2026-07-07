@@ -259,15 +259,30 @@ python -m videotomocap --config configs/pipeline.yaml hmr        # auto: 2 GPUs,
 ```
 
 **Saturate a card / one-GPU parallelism.** You also asked for "do multiple at
-once even on one GPU." Raise `workers_per_gpu` (or `--workers-per-gpu`): with 2
-clips per card, while one clip's model is on the GPU the other is decoding video
-/ doing IO, so the card stays busy instead of idling between clips. On a single
-faster future card this is how you keep it fed:
+once even on one GPU." `workers_per_gpu` packs N clips onto each card: while one
+clip's model is on the GPU the others are decoding video / doing IO, so the card
+stays busy instead of idling between clips.
 
 ```bash
 python -m videotomocap ... hmr --gpus 0 --workers-per-gpu 3   # 3 clips share GPU 0
-python -m videotomocap ... hmr --gpus auto --workers-per-gpu 2 # both cards, 2 deep each
+python -m videotomocap ... hmr --gpus auto --workers-per-gpu 2 # both cards, 2 deep
 ```
+
+**Or let it pick N automatically** — `workers_per_gpu: auto` sizes the depth from
+each card's *free VRAM*: `(free − headroom) ÷ per-clip footprint`, clamped to
+`max_workers_per_gpu`. It learns the per-clip footprint by **calibrating on the
+first clip** (measuring how far its free VRAM dips while it runs), unless you set
+`vram_per_worker_mb` to skip that. So on a bigger future card it just fills up:
+
+```bash
+python -m videotomocap ... hmr --gpus auto --workers-per-gpu auto
+# -> "Calibrated ~5400 MiB/clip on gpu0"
+# -> "Auto workers/GPU from ~5400 MiB/clip, 2000 MiB headroom: {'0': 3, '1': 3}"
+```
+
+Tune the safety margin and ceiling with `vram_headroom_mb` (default 2000) and
+`max_workers_per_gpu` (default 8). Because it reads *free* (not total) VRAM, it
+also backs off if another process is already using a card.
 
 Mechanics and honest limits:
 - Each worker runs the backend in its own subprocess with `CUDA_VISIBLE_DEVICES`

@@ -125,11 +125,22 @@ class PipelineConfig:
     explicit list ['0','1'] pins those; empty inherits the ambient device.
     Workers are assigned round-robin, so >1 worker per GPU packs a single card."""
 
-    workers_per_gpu: int = 1
-    """Clips to run concurrently ON EACH GPU. 1 = one clip per card. Raise to 2-3
-    to overlap one clip's GPU phase with another's video-decode/IO and saturate a
-    fast card -- at the cost of more VRAM (risk OOM). Also gives intra-GPU
-    parallelism when you only have one card."""
+    workers_per_gpu: object = 1
+    """Clips to run concurrently ON EACH GPU. An int pins that many; ``'auto'``
+    sizes it from free VRAM (see below) -- fill each card as deep as its memory
+    allows. 1 = one clip per card. Higher overlaps one clip's GPU phase with
+    another's decode/IO and saturates a fast card, at the cost of more VRAM."""
+
+    vram_per_worker_mb: Optional[int] = None
+    """For ``workers_per_gpu: auto`` -- estimated VRAM one clip needs (MiB). If
+    None, the runner CALIBRATES by measuring the first clip's peak usage, then
+    fills each GPU accordingly. Set it explicitly to skip calibration."""
+
+    vram_headroom_mb: int = 2000
+    """Safety margin (MiB) always left free per GPU when auto-sizing workers."""
+
+    max_workers_per_gpu: int = 8
+    """Hard cap on auto-sized workers per GPU (guards against over-subscription)."""
 
     cuda_device: Optional[str] = None
     """Internal: the GPU id assigned to THIS run, exported as CUDA_VISIBLE_DEVICES

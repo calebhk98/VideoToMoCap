@@ -109,8 +109,11 @@ def _gpus(args):
 
 
 def _apply_parallel_overrides(cfg, args) -> None:
-    if getattr(args, "workers_per_gpu", None) is not None:
-        cfg.workers_per_gpu = args.workers_per_gpu
+    wpg = getattr(args, "workers_per_gpu", None)
+    if wpg is not None:
+        cfg.workers_per_gpu = wpg if wpg.lower() == "auto" else int(wpg)
+    if getattr(args, "vram_per_worker_mb", None) is not None:
+        cfg.vram_per_worker_mb = args.vram_per_worker_mb
 
 
 def cmd_hmr(args) -> int:
@@ -172,8 +175,10 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument("--limit", type=int, help="process at most N clips (smoke test)")
         sp.add_argument("--workers", type=int, help="clips to process at once (default: auto)")
         sp.add_argument("--gpus", help="'auto' to detect, or comma-separated ids e.g. 0,1")
-        sp.add_argument("--workers-per-gpu", dest="workers_per_gpu", type=int,
-                        help="clips per GPU (raise to saturate a fast card; risks OOM)")
+        sp.add_argument("--workers-per-gpu", dest="workers_per_gpu",
+                        help="clips per GPU: an int, or 'auto' to size from free VRAM")
+        sp.add_argument("--vram-per-worker-mb", dest="vram_per_worker_mb", type=int,
+                        help="VRAM/clip estimate (MiB) for auto sizing; skips calibration")
         sp.set_defaults(func=fn)
 
     sub.add_parser("build", help="aggregate anonymized clips into an AMASS dataset").set_defaults(func=cmd_build)

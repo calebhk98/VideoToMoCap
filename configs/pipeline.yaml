@@ -32,8 +32,11 @@ partial_body_cameras: []   # shorthand: same as camera_occlusions {cam: [legs]}
 
 # --- Parallelism -----------------------------------------------------------
 gpus: auto                 # 'auto' detects your GPUs; or list explicitly ["0","1"]
-workers_per_gpu: 1         # clips per card; raise to 2-3 to saturate a fast GPU
-# workers:                 # leave unset -> auto = (#GPUs x workers_per_gpu)
+workers_per_gpu: auto      # 'auto' sizes N from free VRAM (calibrates clip 0), or an int
+# vram_per_worker_mb:      # set to skip calibration (VRAM one clip needs, MiB)
+vram_headroom_mb: 2000     # always leave this much free per card
+max_workers_per_gpu: 8     # ceiling for auto sizing
+# workers:                 # override the total worker count directly
 
 # --- Anonymization ---------------------------------------------------------
 drop_shape: true          # discard SMPL betas -> no body identity leaves here

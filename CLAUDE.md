@@ -29,7 +29,8 @@ videotomocap/
   dataset.py      Aggregate anonymized clips → AMASS-SMPL-H npz + train/val split.
   pipeline.py     Orchestration: scan → hmr → refine → anonymize → build.
                   Parallel (thread-per-clip, GPU-pinned) + resumable.
-  gpu.py          Detect GPUs (nvidia-smi) + resolve device/worker counts.
+  gpu.py          Detect GPUs (nvidia-smi), size workers-per-GPU from free VRAM
+                  (calibrate on clip 0), resolve device/worker counts.
   regions.py      Body region → SMPL joint indices (occlusion tagging).
   refine.py       Optional post-proc: temporal de-jitter + stationary anti-drift.
   cli.py          `python -m videotomocap <cmd>`. Thin wrapper over the above.

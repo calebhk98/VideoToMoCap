@@ -222,6 +222,64 @@ def test_gpu_resolution():
     assert gpu.resolve_workers(None, [None], 3) == 3   # CPU-only fallback
 
 
+def test_vram_planning_pure_functions():
+    from videotomocap import gpu
+    # (free - headroom) // est, clamped [1, cap]
+    plan = gpu.plan_workers_per_gpu({"0": 20000, "1": 8000}, est_mb=6000, headroom_mb=2000, cap=8)
+    assert plan == {"0": 3, "1": 1}
+    assert gpu.plan_workers_per_gpu({"0": 100000}, 6000, 2000, 4)["0"] == 4   # cap
+    assert gpu.distribute_workers(5, ["0", "1"]) == {"0": 3, "1": 2}
+    assert gpu.expand_devices(["0", "1"], {"0": 2, "1": 1}) == ["0", "0", "1"]
+    assert gpu.expand_devices([None], {None: 0}) == [None]                    # never empty
+
+
+def test_measure_peak_vram_captures_dip_and_handles_cpu():
+    import time
+    from videotomocap import gpu
+    state = {"free": 20000}
+    probe = lambda: {"0": state["free"]}
+
+    def run():
+        state["free"] = 12000        # "model loads" -> free drops
+        time.sleep(0.02)             # let the sampler observe the dip
+
+    assert gpu.measure_peak_vram(run, "0", free_mem_fn=probe, poll=0.001) == 8000
+    # CPU / no device -> None (runs the fn, no measurement)
+    assert gpu.measure_peak_vram(lambda: None, None, free_mem_fn=probe) is None
+
+
+def test_run_hmr_auto_sizes_from_free_vram():
+    with tempfile.TemporaryDirectory() as tmp:
+        cfg = _noop_cfg(Path(tmp))
+        cfg.workers_per_gpu = "auto"
+        cfg.vram_per_worker_mb = 6000   # set -> no calibration
+        m = ingest.scan(cfg)
+        pipeline.run_hmr(cfg, m, gpus=["0"], free_mem_fn=lambda: {"0": 20000})
+        assert len(m.by_status(ingest.POSE_DONE)) == 3
+
+
+def test_run_hmr_auto_calibrates_first_clip():
+    with tempfile.TemporaryDirectory() as tmp:
+        cfg = _noop_cfg(Path(tmp))
+        cfg.workers_per_gpu = "auto"
+        cfg.vram_per_worker_mb = None   # -> calibrate on clip 0 (noop uses no VRAM -> default est)
+        m = ingest.scan(cfg)
+        pipeline.run_hmr(cfg, m, gpus=["0"], free_mem_fn=lambda: {"0": 30000})
+        assert len(m.by_status(ingest.POSE_DONE)) == 3   # calib clip + the rest all done
+
+
+def test_cli_parses_workers_per_gpu_auto_and_vram():
+    from videotomocap import cli
+    a = cli.build_parser().parse_args(["hmr", "--workers-per-gpu", "auto"])
+    cfg = PipelineConfig(backend="noop")
+    cli._apply_parallel_overrides(cfg, a)
+    assert cfg.workers_per_gpu == "auto"
+    b = cli.build_parser().parse_args(["hmr", "--workers-per-gpu", "4", "--vram-per-worker-mb", "5000"])
+    cfg2 = PipelineConfig(backend="noop")
+    cli._apply_parallel_overrides(cfg2, b)
+    assert cfg2.workers_per_gpu == 4 and cfg2.vram_per_worker_mb == 5000
+
+
 def test_workers_per_gpu_packs_a_single_card():
     # 1 GPU, workers_per_gpu=3 -> 3 clips share the card (intra-GPU parallelism)
     with tempfile.TemporaryDirectory() as tmp:
