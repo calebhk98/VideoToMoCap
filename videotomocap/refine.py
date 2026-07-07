@@ -4,15 +4,15 @@ Two ideas from the research watchlist (``RESEARCH_WATCHLIST.md``) are tractable
 *today*, without training anything or touching a GPU, because they are just
 signal-processing passes over a rotation/translation time series:
 
-1. **Temporal de-jitter** (``temporal_dejitter``) -- inspired by **HTD-Refine**
-   (arXiv:2605.26879): that paper trains a network to refine any HMR estimate
-   by penalizing high-order temporal dynamics (velocity/acceleration) of joint
-   rotations. We do not have their network or training data, but the *idea* --
-   suppress acceleration-scale jitter while preserving the underlying motion --
-   is exactly what a Savitzky-Golay smoother does: locally fit a low-order
-   polynomial per channel and evaluate it at the center frame. No learning
-   required, and it is trivially invertible in strength (``strength=0`` is a
-   no-op, ``strength=1`` is fully smoothed).
+1. **Temporal de-jitter** -- inspired by **HTD-Refine** (arXiv:2605.26879): that
+   paper trains a network to refine any HMR estimate by penalizing high-order
+   temporal dynamics (velocity/acceleration) of joint rotations. We have neither
+   the network nor its training data, but the *objective* is reimplementable two
+   ways here: ``temporal_dejitter`` (a Savitzky-Golay local polynomial fit) and
+   ``variational_smooth`` (a global least-squares smoother that directly
+   minimizes ``||x-y||^2 + lam*||accel(x)||^2`` -- literally the paper's
+   penalize-acceleration objective, solved rather than learned). No learning
+   required; both are no-ops at zero strength/lambda.
 
 2. **Trajectory-level anti-drift** (``anti_drift_stationary``) -- a deliberately
    scoped-down stand-in for true foot-contact / foot-skating cleanup. Real
@@ -152,6 +152,96 @@ def temporal_dejitter(
 
 
 # ---------------------------------------------------------------------------
+# Variational de-jitter: HTD-Refine's objective, solved instead of learned
+# ---------------------------------------------------------------------------
+#
+# HTD-Refine trains a network to refine motion by penalizing its high-order
+# temporal dynamics. Without the network we can still optimize that *objective*
+# directly: find the signal x that minimizes  ||x - y||^2 + lam*||D2 x||^2, where
+# D2 is the second difference (acceleration). That is a global least-squares
+# smoother (Whittaker / Hodrick-Prescott) -- a principled step up from the local
+# Savitzky-Golay fit: it trades data fidelity against acceleration energy over
+# the whole window at once. Closed form: (I + lam*D2^T D2) x = y. We solve it in
+# overlapping windows (Hann-tapered overlap-add) so it scales to long clips.
+
+
+def _second_diff_matrix(w: int) -> np.ndarray:
+    """(w-2, w) second-difference operator: rows [1, -2, 1] (discrete accel.)."""
+    d = np.zeros((w - 2, w))
+    idx = np.arange(w - 2)
+    d[idx, idx], d[idx, idx + 1], d[idx, idx + 2] = 1.0, -2.0, 1.0
+    return d
+
+
+def _variational_inverse(w: int, lam: float) -> np.ndarray:
+    """Inverse of the SPD operator (I + lam D2^T D2); applied to each window."""
+    d2 = _second_diff_matrix(w)
+    return np.linalg.inv(np.eye(w) + lam * (d2.T @ d2))
+
+
+def _windowed_solve(x: np.ndarray, inv: np.ndarray, w: int) -> np.ndarray:
+    """Overlap-add the per-window smoother across a (T, D) sequence.
+
+    A Hann taper weights each window so overlapping solutions blend smoothly;
+    where only one window covers a frame the taper cancels in the normalization,
+    so the endpoints are exactly that window's solution (no edge darkening).
+    """
+    t, d = x.shape
+    step = max(1, w // 2)
+    starts = list(range(0, max(1, t - w + 1), step))
+    if starts[-1] != t - w:
+        starts.append(max(0, t - w))
+    taper = (np.hanning(w) + 1e-6)[:, None]
+    out = np.zeros((t, d))
+    weight = np.zeros((t, 1))
+    for s in starts:
+        seg = x[s:s + w]
+        out[s:s + w] += taper * (inv @ seg)
+        weight[s:s + w] += taper
+    return (out / np.maximum(weight, 1e-8)).astype(np.float32)
+
+
+def variational_smooth(
+    motion: SmplMotion,
+    *,
+    lam: float = 10.0,
+    window: int = 128,
+    smooth_hands: bool = True,
+) -> SmplMotion:
+    """De-jitter by minimizing ||x-y||^2 + lam*||accel(x)||^2 (HTD-Refine objective).
+
+    ``lam`` sets the smoothing strength (0 = no-op). A clean constant-acceleration
+    signal (zero second difference) is returned unchanged, so genuine motion is
+    preserved while acceleration-scale jitter is suppressed.
+    """
+    t = motion.n_frames
+    w = min(window, t)
+    if t < 5 or lam <= 0 or w < 5:
+        return _copy(motion)
+    inv = _variational_inverse(w, lam)
+
+    def smooth(x: np.ndarray) -> np.ndarray:
+        return _windowed_solve(x, inv, w)
+
+    def smooth_hand(hand: Optional[np.ndarray]) -> Optional[np.ndarray]:
+        if hand is None:
+            return None
+        return smooth(hand) if smooth_hands else hand.copy()
+
+    return SmplMotion(
+        poses=smooth(motion.poses),
+        trans=smooth(motion.trans),
+        fps=motion.fps,
+        betas=motion.betas,
+        left_hand_pose=smooth_hand(motion.left_hand_pose),
+        right_hand_pose=smooth_hand(motion.right_hand_pose),
+        frame=motion.frame,
+        source_clip=motion.source_clip,
+        meta=dict(motion.meta, dejitter="variational", dejitter_lambda=lam, dejitter_window=w),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Trajectory-level anti-drift (the honest, scoped-down foot-skate cleanup)
 # ---------------------------------------------------------------------------
 
@@ -227,9 +317,11 @@ def refine_motion(
     motion: SmplMotion,
     *,
     smooth: bool = True,
+    method: str = "savgol",
     window: int = 9,
     polyorder: int = 2,
     strength: float = 1.0,
+    lam: float = 10.0,
     smooth_hands: bool = True,
     anti_drift: bool = True,
     vel_thresh: float = 0.02,
@@ -238,13 +330,18 @@ def refine_motion(
 ) -> SmplMotion:
     """Apply the enabled refinement passes and return a new :class:`SmplMotion`.
 
-    Order matters: de-jitter first (so drift detection below sees clean
-    velocities, not smoothing artifacts), then anti-drift. Either pass can be
-    disabled independently. Always returns a fresh object -- the input
-    ``motion`` is never mutated, even when both passes are disabled.
+    ``method`` picks the de-jitter: 'savgol' (local polynomial fit) or
+    'variational' (global acceleration-penalized least squares -- the HTD-Refine
+    objective). Order matters: de-jitter first (so drift detection sees clean
+    velocities), then anti-drift. Either pass can be disabled; always returns a
+    fresh object (the input is never mutated, even when both passes are off).
     """
+    if method not in ("savgol", "variational"):
+        raise ValueError(f"refine method must be 'savgol' or 'variational', got {method!r}")
     out = motion
-    if smooth:
+    if smooth and method == "variational":
+        out = variational_smooth(out, lam=lam, window=max(window, 32), smooth_hands=smooth_hands)
+    elif smooth:
         out = temporal_dejitter(out, window=window, polyorder=polyorder, strength=strength, smooth_hands=smooth_hands)
     if anti_drift:
         out = anti_drift_stationary(out, vel_thresh=vel_thresh, min_duration=min_duration, damping=damping)

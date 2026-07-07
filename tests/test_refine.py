@@ -21,6 +21,7 @@ from videotomocap.refine import (
     jitter_metric,
     refine_motion,
     temporal_dejitter,
+    variational_smooth,
 )
 
 
@@ -224,6 +225,45 @@ def test_jitter_metric_zero_for_linear_motion():
 
 def test_jitter_metric_zero_for_short_sequence():
     assert jitter_metric(np.zeros((2, 3), np.float32)) == 0.0
+
+
+# -- variational (HTD-Refine-objective) smoother -----------------------------
+
+def test_variational_smooth_preserves_linear_motion():
+    # zero-acceleration signal -> the penalty is 0, so the smoother is identity
+    t = 200
+    lin = np.outer(np.linspace(0, 1, t), np.ones(72)).astype(np.float32)
+    m = SmplMotion(poses=lin, trans=np.zeros((t, 3), np.float32), fps=30.0)
+    out = variational_smooth(m, lam=20.0, window=64)
+    assert np.abs(out.poses - lin).max() < 1e-4
+
+
+def test_variational_smooth_reduces_jitter_and_lam_zero_is_noop():
+    rng = np.random.default_rng(3)
+    t = 200
+    clean = np.cumsum(rng.normal(0, 0.02, (t, 72)), axis=0).astype(np.float32)
+    noisy = clean + rng.normal(0, 0.05, (t, 72)).astype(np.float32)
+    m = SmplMotion(poses=noisy, trans=np.zeros((t, 3), np.float32), fps=30.0)
+    smoothed = variational_smooth(m, lam=30.0, window=64)
+    assert jitter_metric(smoothed.poses) < jitter_metric(noisy)
+    assert np.allclose(variational_smooth(m, lam=0.0).poses, noisy)  # lam=0 -> unchanged
+    assert variational_smooth(m, lam=10.0).n_frames == t             # length preserved
+
+
+def test_variational_smooth_preserves_hands_and_flag():
+    m = _body(60, hands=True)
+    out = variational_smooth(m, lam=10.0, window=32)
+    assert out.left_hand_pose.shape == m.left_hand_pose.shape
+    assert not np.array_equal(out.left_hand_pose, m.left_hand_pose)   # smoothed by default
+    off = variational_smooth(m, lam=10.0, window=32, smooth_hands=False)
+    assert np.array_equal(off.left_hand_pose, m.left_hand_pose)       # left alone
+
+
+def test_refine_motion_method_variational_and_rejects_bad():
+    m = _body(60, seed=2)
+    out = refine_motion(m, method="variational", anti_drift=False)
+    assert out.meta["dejitter"] == "variational" and out.meta["refined"] is True
+    assert_raises(ValueError, lambda: refine_motion(m, method="bogus"))
 
 
 def _run_all():

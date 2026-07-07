@@ -126,6 +126,11 @@ class PipelineConfig:
     HMR, before anonymization. Pure-NumPy, no weights; see ``videotomocap.refine``.
     Off by default -- turn on if your backend's output is jittery."""
 
+    refine_method: str = "savgol"
+    """De-jitter method when ``refine`` is on: 'savgol' (fast local fit) or
+    'variational' (global acceleration-penalized smoother -- the HTD-Refine
+    objective solved directly; stronger, slightly slower)."""
+
     auto_mirror: str = "off"
     """Automatic left/right-mirror handling for flipped (e.g. selfie) footage,
     detected corpus-relative from handedness (no per-video tags). One of:

@@ -8,6 +8,21 @@ Hand4Whole++/Multi-HMR, WiLoR/HaMeR) lives in `README.md`, not here.
 Code-status confidence is noted; very recent arXiv posts may ship a repo shortly
 after — re-check before assuming absent.
 
+## Feasibility for this repo — what's reimplementable *without training* (2026-07)
+
+Investigated the "reimplement" candidates against this repo's constraint (pure
+NumPy post-processing, no training/weights/GPU). Status of each:
+
+| Idea | Tractable slice (done here) | Hard part (deferred) |
+|---|---|---|
+| **HTD-Refine** (de-jitter/de-drift) | ✅ **Done.** `refine.py` implements the objective two ways: Savitzky–Golay (`temporal_dejitter`) and now a **variational second-difference smoother** (`variational_smooth`) that directly minimizes `‖x−y‖²+λ‖accel(x)‖²` — the paper's "penalize high-order temporal dynamics" objective, *solved* instead of learned. Set `refine_method: variational`. | The learned PVA-Net that predicts per-joint velocity/accel *constraints* from images — needs their network + training data. |
+| **FactorizedHMR** (torso-anchor + generative limb completion for out-of-frame limbs) | ◑ **Partial.** We detect & mask unreliable/out-of-frame limbs (`auto_occlusion`, `camera_occlusions` → `joint_valid`), which is the "don't trust hallucinated limbs" half. | The **generative completion** (flow-matching model that *fills in* plausible occluded-limb motion conditioned on the torso) needs training. A training-free stand-in — retrieve the person's own reliable limb motion from a similar corpus clip — is possible but speculative; left for later. |
+| **PersonaAnimator** (personal-style motion model) | — | This *is* Pipeline 2 (fine-tune a motion model on your data). Scaffolded in `motion_model/`; needs GPU training. |
+
+Bottom line: HTD-Refine's core is now fully realized here; FactorizedHMR and
+PersonaAnimator's remaining value is genuinely training-bound, so they stay on
+the watchlist rather than in the pipeline.
+
 ## Most actionable for this pipeline
 
 | Paper | Why it matters here | Code | Move |

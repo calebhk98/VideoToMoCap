@@ -50,6 +50,7 @@ drop_shape: true          # discard SMPL betas -> no body identity leaves here
 keep_translation: true    # keep world trajectory (needed for grounded motion)
 use_frame: global         # 'global' = world-grounded, 'incam' = camera-relative
 refine: false             # true = temporal de-jitter + anti-drift post-processing
+refine_method: savgol     # savgol | variational (HTD-Refine accel-penalized smoother)
 
 # Auto-detect left/right-mirrored (flipped selfie) clips from corpus handedness.
 auto_mirror: off          # off | flag (annotate) | correct (also flip flagged)

@@ -326,9 +326,12 @@ interrupted.
 ### Refinement (optional post-processing)
 
 Set `refine: true` to run a pure-NumPy cleanup pass after HMR (before
-anonymization): a temporal de-jitter (Savitzky–Golay smoothing of the pose
-channels, inspired by HTD-Refine) and a stationary anti-drift fix. No weights, no
-GPU. Turn it on if a backend's raw output is jittery; see `videotomocap/refine.py`.
+anonymization): a temporal de-jitter and a stationary anti-drift fix. No weights,
+no GPU. Two de-jitter methods (`refine_method`), both realizing **HTD-Refine**'s
+"penalize high-order temporal dynamics" objective without its learned network:
+`savgol` (fast local polynomial fit) and `variational` (a global smoother that
+directly minimizes `‖x−y‖² + λ‖accel(x)‖²`). See `videotomocap/refine.py` and the
+feasibility notes in [`RESEARCH_WATCHLIST.md`](RESEARCH_WATCHLIST.md).
 
 ## Code health (pre-commit)
 
