@@ -21,19 +21,25 @@ static_cameras:
   - cam01_corner
   - cam02_corner
 
-# Cameras that only see part of the body (e.g. a waist-up desk view). Clips from
-# these are tagged `partial_body` in the manifest -- their out-of-frame joints
-# (legs) are HMR-inferred, not observed. Filter/down-weight them downstream.
-partial_body_cameras: []
+# Body parts a camera can't reliably see -> those joints are tagged unreliable
+# (HMR-inferred, not observed) per clip, and a joint_valid mask flows to the
+# dataset so you can filter/mask them. Regions: legs|left_leg|right_leg|feet|
+# arms|left_arm|right_arm|hands|head (see videotomocap/regions.py).
+camera_occlusions: {}
+#  cam_desk: [legs]      # waist-up view
+#  cam_high: [head]      # head cropped
+partial_body_cameras: []   # shorthand: same as camera_occlusions {cam: [legs]}
 
 # --- Parallelism -----------------------------------------------------------
-workers: 2                                 # clips processed at once (~= #GPUs)
-gpus: ["0", "1"]                            # one clip pinned per GPU, round-robin
+gpus: auto                 # 'auto' detects your GPUs; or list explicitly ["0","1"]
+workers_per_gpu: 1         # clips per card; raise to 2-3 to saturate a fast GPU
+# workers:                 # leave unset -> auto = (#GPUs x workers_per_gpu)
 
 # --- Anonymization ---------------------------------------------------------
 drop_shape: true          # discard SMPL betas -> no body identity leaves here
 keep_translation: true    # keep world trajectory (needed for grounded motion)
 use_frame: global         # 'global' = world-grounded, 'incam' = camera-relative
+refine: false             # true = temporal de-jitter + anti-drift post-processing
 
 # --- Dataset ---------------------------------------------------------------
 target_fps: 30.0

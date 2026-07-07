@@ -30,6 +30,10 @@ graft_wrist: false
 # supports it.
 static_cameras: []
 
+# --- Parallelism ---
+gpus: auto                 # detect GPUs; fusion runs body+hand tools per clip
+workers_per_gpu: 1         # fusion is heavier (2 models) -> keep low unless VRAM allows
+
 # --- Anonymization ---
 drop_shape: true
 keep_translation: true

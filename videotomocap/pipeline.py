@@ -27,12 +27,15 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import List, Optional
 
+import numpy as np
+
 from . import ingest
 from .backends import get_backend
 from .config import PipelineConfig
 from .dataset import build_dataset
+from .gpu import resolve_devices, resolve_workers
 from .ingest import Clip, Manifest
-from .pose import anonymize, resample_fps
+from .pose import SMPL_NJOINTS, anonymize, resample_fps
 
 
 def _pose_path(cfg: PipelineConfig, clip: Clip) -> Path:
@@ -52,11 +55,24 @@ def _compute_and_save(cfg: PipelineConfig, clip: Clip) -> int:
 
     motion = backend.run(video, hmr_out, static=static)
     motion = resample_fps(motion, cfg.target_fps)
+    if cfg.refine:
+        from .refine import refine_motion  # optional post-processing; keep import lazy
+        motion = refine_motion(motion)
     anon = anonymize(motion, drop_shape=cfg.drop_shape, keep_translation=cfg.keep_translation)
+    anon.joint_valid = _joint_valid_mask(clip)  # label out-of-frame joints (if any)
 
     cfg.pose_dir.mkdir(parents=True, exist_ok=True)
     anon.save_npz(_pose_path(cfg, clip))
     return anon.n_frames
+
+
+def _joint_valid_mask(clip: Clip):
+    """(24,) bool mask, False where the camera can't see the joint. None if all seen."""
+    if not clip.unreliable_joints:
+        return None
+    mask = np.ones(SMPL_NJOINTS, dtype=bool)
+    mask[clip.unreliable_joints] = False
+    return mask
 
 
 def process_clip(cfg: PipelineConfig, manifest: Manifest, clip: Clip, backend=None) -> None:
@@ -77,30 +93,20 @@ def run_hmr(
     *,
     limit: Optional[int] = None,
     workers: Optional[int] = None,
-    gpus: Optional[List[str]] = None,
+    gpus=None,
 ) -> Manifest:
-    """Process all processable clips. Failures are recorded, not fatal.
+    """Process all processable clips, in parallel across GPUs. Failures recorded.
 
-    ``workers`` (default ``cfg.workers``) > 1 fans clips out concurrently across
-    ``gpus`` (default ``cfg.gpus``). One bad clip never kills the batch.
+    Devices come from ``gpus`` (or ``cfg.gpus``; 'auto' detects them). Worker
+    count comes from ``workers`` (or ``cfg.workers``; auto = detected GPUs x
+    ``cfg.workers_per_gpu``). One bad clip never kills the batch, and the
+    manifest is checkpointed after every clip so the run stays resumable.
     """
-    n_workers = workers if workers is not None else cfg.workers
-    if n_workers and n_workers > 1:
-        return _run_hmr_parallel(cfg, manifest, workers=n_workers, gpus=gpus, limit=limit)
-
-    todo = _todo(manifest, limit)
-    for i, clip in enumerate(todo, 1):
-        print(f"[{i}/{len(todo)}] {clip.clip_id}  ({clip.rel_path})")
-        try:
-            process_clip(cfg, manifest, clip)
-        except Exception as exc:  # noqa: BLE001 -- one bad clip must not kill the batch
-            clip.status = ingest.FAILED
-            clip.error = f"{type(exc).__name__}: {exc}"
-            print(f"    FAILED: {clip.error}")
-            traceback.print_exc()
-        finally:
-            manifest.save(cfg.manifest_path)  # checkpoint after every clip
-    return manifest
+    devices = resolve_devices(gpus if gpus is not None else cfg.gpus)
+    n_workers = resolve_workers(
+        workers if workers is not None else cfg.workers, devices, cfg.workers_per_gpu
+    )
+    return _run_hmr(cfg, manifest, workers=n_workers, devices=devices, limit=limit)
 
 
 def _clone_for_device(cfg: PipelineConfig, device: Optional[str]) -> PipelineConfig:
@@ -110,15 +116,21 @@ def _clone_for_device(cfg: PipelineConfig, device: Optional[str]) -> PipelineCon
     return c
 
 
-def _run_hmr_parallel(
+def _run_hmr(
     cfg: PipelineConfig,
     manifest: Manifest,
     *,
     workers: int,
-    gpus: Optional[List[str]] = None,
+    devices: List[Optional[str]],
     limit: Optional[int] = None,
 ) -> Manifest:
-    devices = list(gpus) if gpus else (list(cfg.gpus) if cfg.gpus else [None])
+    """Fan clips out over a thread pool, round-robin across ``devices``.
+
+    Threads (not processes) suffice: each clip's heavy work is in the backend
+    subprocess, which releases the GIL, so N threads drive N concurrent
+    subprocesses. ``workers`` > ``len(devices)`` packs multiple clips onto a
+    card (overlapping GPU compute with the next clip's decode/IO).
+    """
     todo = _todo(manifest, limit)
     total = len(todo)
     lock = threading.Lock()

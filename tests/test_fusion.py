@@ -181,6 +181,38 @@ def test_smplx_frames_stack_parses_hands():
     assert np.allclose(motion.left_hand_pose[2], 0.04)  # 0.02 * 2
 
 
+def test_joint_valid_roundtrips_and_survives_transforms():
+    import numpy as np
+    body = _body(12, seed=3)
+    mask = np.ones(24, bool)
+    mask[[1, 2, 4, 5]] = False  # legs unreliable
+    m = SmplMotion(poses=body.poses, trans=body.trans, fps=30.0, joint_valid=mask)
+    # anonymize + resample keep the mask
+    assert not anonymize(m).joint_valid[4]
+    assert resample_fps(m, 15.0).joint_valid is not None
+    # npz round-trip
+    with tempfile.TemporaryDirectory() as tmp:
+        p = Path(tmp) / "m.npz"
+        m.save_npz(p)
+        back = SmplMotion.load_npz(p)
+        assert np.array_equal(back.joint_valid, mask)
+    # no mask -> stays None on reload
+    with tempfile.TemporaryDirectory() as tmp:
+        p = Path(tmp) / "n.npz"
+        _body(5).save_npz(p)
+        assert SmplMotion.load_npz(p).joint_valid is None
+
+
+def test_joint_valid_rejects_bad_shape():
+    import numpy as np
+    try:
+        SmplMotion(poses=np.zeros((3, 72), np.float32), trans=np.zeros((3, 3), np.float32),
+                   fps=30.0, joint_valid=np.ones(10, bool))
+    except ValueError:
+        return
+    raise AssertionError("expected ValueError for bad joint_valid shape")
+
+
 def test_hand_estimator_parse_frames_splits_left_right():
     from videotomocap.backends.fusion import WiLoRHandEstimator
     from videotomocap.config import PipelineConfig

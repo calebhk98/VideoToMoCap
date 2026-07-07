@@ -211,6 +211,27 @@ def test_parallel_records_failures_and_continues():
         assert statuses["cam01/2024-05-01/a.mp4"] == ingest.POSE_DONE
 
 
+def test_gpu_resolution():
+    from videotomocap import gpu
+    assert gpu.resolve_devices(["0", "1"]) == ["0", "1"]
+    assert gpu.resolve_devices([]) == [None]          # empty -> one ambient slot
+    assert gpu.resolve_devices("auto")                # never empty
+    # explicit worker count wins; else devices * per-gpu
+    assert gpu.resolve_workers(5, ["0"], 2) == 5
+    assert gpu.resolve_workers(None, ["0", "1"], 2) == 4
+    assert gpu.resolve_workers(None, [None], 3) == 3   # CPU-only fallback
+
+
+def test_workers_per_gpu_packs_a_single_card():
+    # 1 GPU, workers_per_gpu=3 -> 3 clips share the card (intra-GPU parallelism)
+    with tempfile.TemporaryDirectory() as tmp:
+        cfg = _noop_cfg(Path(tmp))
+        cfg.workers_per_gpu = 3
+        m = ingest.scan(cfg)
+        pipeline.run_hmr(cfg, m, gpus=["0"])
+        assert len(m.by_status(ingest.POSE_DONE)) == 3
+
+
 def test_gpu_pinning_sets_cuda_visible_devices():
     from videotomocap.backends.gvhmr import GVHMRBackend
     cfg = pipeline._clone_for_device(PipelineConfig(backend="gvhmr"), "1")
@@ -259,6 +280,61 @@ def test_build_dataset_empty_and_min_frames_and_determinism():
 
 
 # --- backends: registry + error paths + mockable parsers --------------------
+
+def test_regions_and_occlusion_tagging():
+    from videotomocap.regions import joints_for_regions
+    assert joints_for_regions(["head"]) == [12, 15]
+    assert joints_for_regions(["legs", "left_arm"])  # union, no error
+    assert_raises(ValueError, lambda: joints_for_regions(["nonsense"]))
+
+    with tempfile.TemporaryDirectory() as tmp:
+        cfg = _noop_cfg(Path(tmp))
+        cfg.camera_occlusions = {"cam01": ["legs"], "cam02": ["head", "right_arm"]}
+        m = ingest.scan(cfg)
+        by_cam = {c.camera: c for c in m.clips}
+        assert by_cam["cam01"].partial_body and by_cam["cam01"].unreliable_joints == [1, 2, 4, 5, 7, 8, 10, 11]
+        assert set(by_cam["cam02"].unreliable_joints) == {12, 15, 14, 17, 19, 21, 23}
+
+
+def test_partial_body_cameras_shorthand_is_legs():
+    with tempfile.TemporaryDirectory() as tmp:
+        cfg = _noop_cfg(Path(tmp))
+        cfg.partial_body_cameras = ["cam01"]
+        m = ingest.scan(cfg)
+        c = next(c for c in m.clips if c.camera == "cam01")
+        assert c.partial_body and c.unreliable_joints == [1, 2, 4, 5, 7, 8, 10, 11]
+
+
+def test_occlusion_flows_to_pose_and_dataset():
+    import json
+    with tempfile.TemporaryDirectory() as tmp:
+        cfg = _noop_cfg(Path(tmp))
+        cfg.camera_occlusions = {"cam01": ["legs"]}
+        m = ingest.scan(cfg)
+        pipeline.run_hmr(cfg, m)
+        # the joint-valid mask reached the saved pose npz
+        cam01 = next(c for c in m.clips if c.camera == "cam01")
+        from videotomocap.pose import SmplMotion
+        mot = SmplMotion.load_npz(cfg.pose_dir / f"{cam01.clip_id}.npz")
+        assert mot.joint_valid is not None and not mot.joint_valid[4]  # left_knee unreliable
+        assert mot.joint_valid[15]                                     # head still reliable
+        # and into the dataset index + AMASS npz
+        pipeline.build(cfg, m)
+        idx = json.loads((cfg.dataset_dir / "index.json").read_text())
+        entry = next(e for e in idx["clips"] if e["clip_id"] == cam01.clip_id)
+        assert entry["unreliable_joints"] == [1, 2, 4, 5, 7, 8, 10, 11]
+        amass = np.load(cfg.dataset_dir / "amass" / f"{cam01.clip_id}.npz")
+        assert "joint_valid_smpl24" in amass
+
+
+def test_refine_flag_runs_end_to_end():
+    with tempfile.TemporaryDirectory() as tmp:
+        cfg = _noop_cfg(Path(tmp))
+        cfg.refine = True
+        m = ingest.scan(cfg)
+        pipeline.run_hmr(cfg, m)
+        assert len(m.by_status(ingest.POSE_DONE)) == 3
+
 
 def test_get_backend_unknown_raises():
     assert_raises(BackendError, lambda: get_backend(PipelineConfig(backend="bogus")))

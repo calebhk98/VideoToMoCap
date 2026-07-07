@@ -49,13 +49,19 @@ def to_amass_npz(motion: SmplMotion, gender: str = "neutral") -> Dict[str, np.nd
         poses[:, SMPLH_LHAND] = motion.left_hand_pose
     if motion.right_hand_pose is not None:
         poses[:, SMPLH_RHAND] = motion.right_hand_pose
-    return {
+    payload = {
         "poses": poses,
         "trans": motion.trans.astype(np.float32),
         "betas": np.zeros(16, np.float32),
         "gender": np.array(gender),
         "mocap_framerate": np.array(float(motion.fps), np.float32),
     }
+    # Non-standard extra: which of the 24 SMPL joints are actually observed (vs
+    # HMR-inferred out of frame). Standard AMASS readers ignore it; mask on it
+    # when training if you don't want to learn guessed limbs.
+    if motion.joint_valid is not None:
+        payload["joint_valid_smpl24"] = motion.joint_valid.astype(np.uint8)
+    return payload
 
 
 @dataclass
@@ -107,7 +113,11 @@ def build_dataset(
         clip_id = Path(p).stem
         payload = to_amass_npz(motion, gender=gender)
         np.savez(amass_dir / f"{clip_id}.npz", **payload)
-        entries.append({"clip_id": clip_id, "n_frames": motion.n_frames, "fps": motion.fps})
+        entry = {"clip_id": clip_id, "n_frames": motion.n_frames, "fps": motion.fps}
+        if motion.joint_valid is not None and not motion.joint_valid.all():
+            # surface which joints are HMR-inferred so you can filter this clip
+            entry["unreliable_joints"] = [int(j) for j in np.where(~motion.joint_valid)[0]]
+        entries.append(entry)
         total_frames += motion.n_frames
         fps_seen = motion.fps
 

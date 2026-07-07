@@ -45,8 +45,11 @@ class Clip:
     n_frames: Optional[int] = None
     note: Optional[str] = None
     partial_body: bool = False
-    """Camera only sees part of the body -> out-of-frame joints are HMR-inferred,
-    not observed. Set from ``cfg.partial_body_cameras``; use it to filter/mask."""
+    """True if any body region is out of frame for this clip's camera."""
+    unreliable_joints: List[int] = field(default_factory=list)
+    """SMPL joint indices whose motion is HMR-inferred (out of frame), not
+    observed -- derived from ``cfg.camera_occlusions`` / ``partial_body_cameras``.
+    Use to filter or mask these joints downstream."""
 
     def is_processable(self) -> bool:
         """True if HMR should (re)run on this clip: pending, or previously failed."""
@@ -128,7 +131,6 @@ def scan(cfg: PipelineConfig) -> Manifest:
         raise FileNotFoundError(f"footage_root does not exist: {root}")
 
     exts = tuple(e.lower() for e in cfg.video_exts)
-    partial = set(cfg.partial_body_cameras)
     clips: List[Clip] = []
     for path in sorted(root.rglob("*")):
         if not path.is_file() or path.suffix.lower() not in exts:
@@ -136,15 +138,28 @@ def scan(cfg: PipelineConfig) -> Manifest:
         rel = path.relative_to(root)
         rel_str = rel.as_posix()
         camera = _camera_of(rel, cfg.camera_dir_depth)
+        unreliable = _unreliable_joints_for(cfg, camera)
         clips.append(
             Clip(
                 clip_id=_clip_id(rel_str),
                 camera=camera,
                 rel_path=rel_str,
-                partial_body=camera in partial,
+                partial_body=bool(unreliable),
+                unreliable_joints=unreliable,
             )
         )
     return Manifest(footage_root=str(root), clips=clips)
+
+
+def _unreliable_joints_for(cfg: PipelineConfig, camera: str) -> List[int]:
+    """SMPL joints out of frame for a camera, from occlusion config + the
+    ``partial_body_cameras`` (=legs) shorthand."""
+    from .regions import joints_for_regions
+
+    regions = list(cfg.camera_occlusions.get(camera, []))
+    if camera in set(cfg.partial_body_cameras):
+        regions.append("legs")
+    return joints_for_regions(regions) if regions else []
 
 
 def refresh(cfg: PipelineConfig, manifest: Manifest) -> Manifest:

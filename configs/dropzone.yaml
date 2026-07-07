@@ -21,8 +21,8 @@ static_cameras: []
 partial_body_cameras: []
 
 # --- Parallelism (scale across GPUs) ---
-workers: 2                 # clips at once; ~= number of GPUs
-gpus: ["0", "1"]           # one clip per GPU, round-robin
+gpus: auto                 # 'auto' detects your GPUs; or list e.g. ["0","1"]
+workers_per_gpu: 1         # raise to 2-3 to pack more clips onto each card
 
 # --- Anonymization ---
 drop_shape: true

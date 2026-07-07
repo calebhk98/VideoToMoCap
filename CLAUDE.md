@@ -23,10 +23,15 @@ on a laptop. See `README.md` for the method research and rationale.
 videotomocap/
   config.py       PipelineConfig dataclass + YAML loader. All knobs live here.
   ingest.py       Scan footage → Manifest (JSON). Clip states + exclude/include.
-  pose.py         SmplMotion container (SMPL-72 body + optional MANO hands).
-                  anonymize() drops betas = THE privacy step. resample_fps().
+  pose.py         SmplMotion container (SMPL-72 body + optional MANO hands +
+                  optional joint_valid mask). anonymize() drops betas = THE
+                  privacy step. resample_fps().
   dataset.py      Aggregate anonymized clips → AMASS-SMPL-H npz + train/val split.
-  pipeline.py     Orchestration: scan → hmr → anonymize → build. Resumable.
+  pipeline.py     Orchestration: scan → hmr → refine → anonymize → build.
+                  Parallel (thread-per-clip, GPU-pinned) + resumable.
+  gpu.py          Detect GPUs (nvidia-smi) + resolve device/worker counts.
+  regions.py      Body region → SMPL joint indices (occlusion tagging).
+  refine.py       Optional post-proc: temporal de-jitter + stationary anti-drift.
   cli.py          `python -m videotomocap <cmd>`. Thin wrapper over the above.
   backends/
     base.py         HMRBackend ABC + rotation/SMPL conversion helpers (pure NumPy).

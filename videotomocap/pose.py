@@ -63,6 +63,7 @@ class SmplMotion:
     betas: Optional[np.ndarray] = None            # (10,) or (16,) shape; dropped by anonymize()
     left_hand_pose: Optional[np.ndarray] = None   # (T, 45) MANO; None -> neutral hand
     right_hand_pose: Optional[np.ndarray] = None   # (T, 45) MANO; None -> neutral hand
+    joint_valid: Optional[np.ndarray] = None      # (24,) bool; False = HMR-inferred (out of frame)
     frame: str = "global"        # 'global' (world-grounded) or 'incam'
     source_clip: Optional[str] = None
     meta: Dict = field(default_factory=dict)
@@ -81,6 +82,10 @@ class SmplMotion:
             self.betas = np.asarray(self.betas, dtype=np.float32).reshape(-1)
         self.left_hand_pose = _as_hand(self.left_hand_pose, self.poses.shape[0], "left_hand_pose")
         self.right_hand_pose = _as_hand(self.right_hand_pose, self.poses.shape[0], "right_hand_pose")
+        if self.joint_valid is not None:
+            self.joint_valid = np.asarray(self.joint_valid, dtype=bool).reshape(-1)
+            if self.joint_valid.shape != (SMPL_NJOINTS,):
+                raise ValueError(f"joint_valid must be ({SMPL_NJOINTS},) bool; got {self.joint_valid.shape}")
 
     @property
     def n_frames(self) -> int:
@@ -113,6 +118,8 @@ class SmplMotion:
             # spurious neutral right hand)
             has_left=np.bool_(self.left_hand_pose is not None),
             has_right=np.bool_(self.right_hand_pose is not None),
+            joint_valid=self.joint_valid if self.joint_valid is not None else np.ones(SMPL_NJOINTS, bool),
+            has_joint_valid=np.bool_(self.joint_valid is not None),
             fps=np.float32(self.fps),
             frame=self.frame,
             source_clip=self.source_clip or "",
@@ -126,12 +133,14 @@ class SmplMotion:
         d = np.load(path, allow_pickle=False)
         has_left = bool(d["has_left"]) if "has_left" in d else False
         has_right = bool(d["has_right"]) if "has_right" in d else False
+        has_jv = bool(d["has_joint_valid"]) if "has_joint_valid" in d else False
         return cls(
             poses=d["poses"],
             trans=d["trans"],
             betas=d["betas"],
             left_hand_pose=d["left_hand_pose"] if has_left else None,
             right_hand_pose=d["right_hand_pose"] if has_right else None,
+            joint_valid=d["joint_valid"] if has_jv else None,
             fps=float(d["fps"]),
             frame=str(d["frame"]),
             source_clip=str(d["source_clip"]) or None,
@@ -157,6 +166,7 @@ def anonymize(motion: SmplMotion, *, drop_shape: bool = True, keep_translation: 
         betas=betas,
         left_hand_pose=None if motion.left_hand_pose is None else motion.left_hand_pose.copy(),
         right_hand_pose=None if motion.right_hand_pose is None else motion.right_hand_pose.copy(),
+        joint_valid=None if motion.joint_valid is None else motion.joint_valid.copy(),
         frame=motion.frame,
         source_clip=motion.source_clip,
         meta=dict(motion.meta, anonymized=True, drop_shape=drop_shape),
@@ -188,6 +198,7 @@ def resample_fps(motion: SmplMotion, target_fps: float) -> SmplMotion:
         betas=None if motion.betas is None else motion.betas.copy(),
         left_hand_pose=interp(motion.left_hand_pose),
         right_hand_pose=interp(motion.right_hand_pose),
+        joint_valid=None if motion.joint_valid is None else motion.joint_valid.copy(),
         frame=motion.frame,
         source_clip=motion.source_clip,
         meta=dict(motion.meta, resampled_from=motion.fps),

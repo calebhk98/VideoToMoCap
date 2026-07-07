@@ -114,30 +114,46 @@ handled by construction. Two knobs:
   manifest treats them independently. Left as a manual step; not confirmed
   necessary.
 
-### Partial-body / truncated footage (only torso + arms visible)
+### Partial-body / occluded footage (legs, an arm, the head — any part)
 
-Security cameras often frame a person waist-up. **HMR methods still output a
-full SMPL body** — they *infer* the out-of-frame joints (usually the legs)
-rather than observing them. So the pipeline never crashes on truncation, but the
-inferred legs are plausible-but-fake motion you don't want polluting a
-"move like me" dataset.
+Cameras often frame a person waist-up, or cut off an arm, or (mounted high) miss
+the head. **HMR methods still output a full SMPL body either way** — they
+*infer* the out-of-frame joints rather than observing them. So the pipeline never
+crashes on truncation, but those inferred joints are plausible-but-fake motion
+you don't want polluting a "move like me" dataset.
 
-How this pipeline helps:
-- **Tag the cameras.** List waist-up cameras under `partial_body_cameras:` in the
-  config; every clip from them is flagged `partial_body` in the manifest
-  (visible in `list`/`status`), so you can filter or down-weight them — e.g.
-  train leg motion only from full-body cameras, keep the partial ones for
-  upper-body/hand motion.
-- **Pick a truncation-robust backend.** `smplestx`, `multihmr` (its CUFFS
-  close-up data), and the fusion path degrade more gracefully under upper-body
-  framing than the body-only trio.
+How this pipeline helps — **tag which body regions each camera can't see**, and
+the unseen joints get labeled so you can filter or mask them:
+
+```yaml
+# whichever regions a camera never reliably shows
+camera_occlusions:
+  cam_desk:  [legs]              # waist-up desk view
+  cam_high:  [head]             # ceiling mount, head cropped
+  cam_left:  [right_arm]        # subject's right arm out of frame
+partial_body_cameras: [cam_desk] # shorthand: same as camera_occlusions {cam: [legs]}
+```
+
+Region names (`videotomocap/regions.py`): `legs`, `left_leg`, `right_leg`,
+`feet`, `arms`, `left_arm`, `right_arm`, `hands`, `head`. For each clip the union
+of their SMPL joints is recorded as `unreliable_joints` in the manifest (visible
+in `list`/`status`) **and** carried all the way through: the anonymized pose npz
+and the exported AMASS npz get a `joint_valid` mask (24 bools, `False` =
+inferred), and the dataset `index.json` lists the unreliable joints per clip. So
+downstream you can drop those clips, or **mask the loss on the guessed joints**
+during training and still use the good ones (e.g. keep the arms/torso from a
+waist-up camera, ignore its legs).
+
+Also **pick a truncation-robust backend** — `smplestx`, `multihmr` (its CUFFS
+close-up data), and the fusion path degrade more gracefully under partial framing
+than the body-only trio.
 
 The honest state of the art: there is **no** published method dedicated to
-"waist-up framing → full-body motion." The closest breaking work
-(FactorizedHMR's torso-anchor + generative limb completion; DanceHMR's
-close-up-aware augmentation) has no usable code yet — tracked in
-[`RESEARCH_WATCHLIST.md`](RESEARCH_WATCHLIST.md). Until then, tag-and-filter is
-the pragmatic answer.
+"partial framing → full-body motion." The closest breaking work (FactorizedHMR's
+torso-anchor + generative limb completion; DanceHMR's close-up-aware
+augmentation) has no usable code yet — tracked in
+[`RESEARCH_WATCHLIST.md`](RESEARCH_WATCHLIST.md). Until then, tag-and-mask is the
+pragmatic answer.
 
 ### Step 2 (pipeline 2) — the motion model
 
@@ -231,22 +247,40 @@ fatal to the batch.
 ## Running at scale (parallelism)
 
 Clips are fully independent, so HMR is embarrassingly parallel — the right lever
-for hundreds of hours of footage. Process many at once and pin one clip per GPU:
+for hundreds of hours of footage.
+
+**It finds your GPUs automatically.** `gpus: auto` (the default in the example
+configs) runs `nvidia-smi` to detect every card and respects an existing
+`CUDA_VISIBLE_DEVICES`. Worker count then defaults to *(#GPUs × `workers_per_gpu`)*
+— so on your dual 3090s, just:
 
 ```bash
-# two 3090s, one clip on each at a time
-python -m videotomocap --config configs/pipeline.yaml hmr --workers 2 --gpus 0,1
+python -m videotomocap --config configs/pipeline.yaml hmr        # auto: 2 GPUs, 1 clip each
 ```
 
+**Saturate a card / one-GPU parallelism.** You also asked for "do multiple at
+once even on one GPU." Raise `workers_per_gpu` (or `--workers-per-gpu`): with 2
+clips per card, while one clip's model is on the GPU the other is decoding video
+/ doing IO, so the card stays busy instead of idling between clips. On a single
+faster future card this is how you keep it fed:
+
+```bash
+python -m videotomocap ... hmr --gpus 0 --workers-per-gpu 3   # 3 clips share GPU 0
+python -m videotomocap ... hmr --gpus auto --workers-per-gpu 2 # both cards, 2 deep each
+```
+
+Mechanics and honest limits:
 - Each worker runs the backend in its own subprocess with `CUDA_VISIBLE_DEVICES`
-  set to its assigned GPU, so the two cards work in parallel. The heavy work is
-  in those subprocesses (GIL released), so a thread pool gives real speedup.
-- The manifest is checkpointed under a lock after every clip, so a parallel run
-  is just as crash-resumable as a sequential one — re-run to pick up where it
-  stopped.
-- `--workers`/`--gpus` (or `workers:`/`gpus:` in the config) default to
-  sequential. Keep `--workers` ≈ number of GPUs (one clip fills a card); more
-  workers than GPUs risks OOM sharing a card.
+  pinned to its GPU (heavy work is in that subprocess, GIL released → real
+  speedup from the thread pool).
+- **Across-clip overlap, not within-clip.** The upstream HMR tools are opaque
+  subprocesses, so we can't pipeline *inside* one clip (decode→detect→regress
+  stages of a single clip aren't ours to interleave). Instead we overlap *whole
+  clips*: `workers_per_gpu > 1` is exactly the "shift the next batch in while the
+  previous one finishes" idea, at clip granularity. More workers than a card's
+  VRAM allows will OOM — 2–3 per 24 GB is the usual sweet spot.
+- Manifest checkpointed under a lock after every clip → a parallel run is as
+  crash-resumable as a sequential one.
 - **Beyond one machine:** the manifest is the coordination point. Point several
   machines at the same footage share with disjoint `--limit`/exclusions, or split
   the footage tree per machine — each writes its own pose npz, then run `build`
@@ -255,6 +289,13 @@ python -m videotomocap --config configs/pipeline.yaml hmr --workers 2 --gpus 0,1
 Roughly: GVHMR at ~real-time on a 4090 → on a 3090 pair, ~2× real-time
 throughput, so hundreds of hours become days, not weeks — and it resumes if
 interrupted.
+
+### Refinement (optional post-processing)
+
+Set `refine: true` to run a pure-NumPy cleanup pass after HMR (before
+anonymization): a temporal de-jitter (Savitzky–Golay smoothing of the pose
+channels, inspired by HTD-Refine) and a stationary anti-drift fix. No weights, no
+GPU. Turn it on if a backend's raw output is jittery; see `videotomocap/refine.py`.
 
 ## Code health (pre-commit)
 
@@ -280,7 +321,10 @@ videotomocap/
   ingest.py            scan footage → manifest; exclude/include clips
   pose.py              SmplMotion container; anonymize() = drop shape, keep pose
   dataset.py           aggregate → AMASS-SMPL npz + train/val split + stats
-  pipeline.py          orchestration (scan→hmr→anonymize→build), parallel+resumable
+  pipeline.py          orchestration (scan→hmr→refine→anonymize→build), parallel+resumable
+  gpu.py               GPU auto-detection + worker/device resolution
+  regions.py           body regions → SMPL joints (occlusion tagging)
+  refine.py            optional post-proc: temporal de-jitter + anti-drift
   cli.py               `python -m videotomocap ...`
   backends/
     base.py            HMRBackend ABC + rotation/SMPL-family conversion helpers

@@ -51,11 +51,17 @@ class PipelineConfig:
     """Camera ids known to be fixed/static -> skip visual odometry (GVHMR ``-s``)."""
 
     partial_body_cameras: List[str] = field(default_factory=list)
-    """Cameras that only ever see part of the body (e.g. a waist-up desk view).
-    HMR still regresses a full SMPL body from these, but the out-of-frame joints
-    (typically the legs) are *inferred*, not observed. Clips from these cameras
-    are tagged ``partial_body`` in the manifest so you can filter/mask them; see
-    README 'Partial-body / truncated footage'."""
+    """Shorthand for the common case: cameras that only see the upper body (legs
+    out of frame). Equivalent to ``camera_occlusions: {cam: ['legs']}``. Clips are
+    tagged ``partial_body`` with the leg joints marked unreliable."""
+
+    camera_occlusions: Dict[str, List[str]] = field(default_factory=dict)
+    """Per-camera list of body regions that are out of frame / never reliably
+    seen, e.g. ``{cam_desk: ['legs'], cam_high: ['head'], cam_left: ['right_arm']}``.
+    Region names are from ``videotomocap.regions.BODY_REGIONS`` (legs, left_arm,
+    head, hands, ...). The union of their SMPL joints is recorded per clip as
+    ``unreliable_joints`` so you can filter or mask those joints downstream. HMR
+    still outputs a full body -- this just labels which joints are guessed."""
 
     backend_extra_args: List[str] = field(default_factory=list)
     """Extra argv tokens appended verbatim to the backend's demo command."""
@@ -88,6 +94,11 @@ class PipelineConfig:
     use_frame: str = "global"
     """'global' (world-grounded) or 'incam' (camera-relative) SMPL params."""
 
+    refine: bool = False
+    """Apply post-processing (temporal de-jitter + stationary anti-drift) after
+    HMR, before anonymization. Pure-NumPy, no weights; see ``videotomocap.refine``.
+    Off by default -- turn on if your backend's output is jittery."""
+
     # --- Dataset ---------------------------------------------------------
     target_fps: float = 30.0
     """Frame rate every clip is resampled to before anonymization/export, so the
@@ -104,14 +115,21 @@ class PipelineConfig:
     """SMPL body gender label written into every exported AMASS npz."""
 
     # --- Parallelism -----------------------------------------------------
-    workers: int = 1
+    workers: Optional[int] = None
     """How many clips to process concurrently. Clips are independent, so this
-    scales near-linearly until GPUs saturate. Default 1 (sequential)."""
+    scales near-linearly until GPUs saturate. ``None`` -> auto = detected GPUs x
+    ``workers_per_gpu`` (or ``workers_per_gpu`` on a CPU-only box)."""
 
-    gpus: List[str] = field(default_factory=list)
-    """GPU ids to spread work across, e.g. ['0','1'] for a dual-3090 box. Workers
-    are pinned round-robin (one clip per GPU at a time). Empty -> inherit the
-    ambient CUDA_VISIBLE_DEVICES / whatever the backend picks."""
+    gpus: object = field(default_factory=list)
+    """GPU ids to spread work across. 'auto' (or ['auto']) detects them; an
+    explicit list ['0','1'] pins those; empty inherits the ambient device.
+    Workers are assigned round-robin, so >1 worker per GPU packs a single card."""
+
+    workers_per_gpu: int = 1
+    """Clips to run concurrently ON EACH GPU. 1 = one clip per card. Raise to 2-3
+    to overlap one clip's GPU phase with another's video-decode/IO and saturate a
+    fast card -- at the cost of more VRAM (risk OOM). Also gives intra-GPU
+    parallelism when you only have one card."""
 
     cuda_device: Optional[str] = None
     """Internal: the GPU id assigned to THIS run, exported as CUDA_VISIBLE_DEVICES
