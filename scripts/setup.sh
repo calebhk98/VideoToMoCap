@@ -76,10 +76,28 @@ fetch_gvhmr_weights() {  # ~5.6 GB, non-gated: HF community mirror, else the off
   echo "  (confirm layout is inputs/checkpoints/{gvhmr,hmr2,vitpose,yolo,dpvo}/ per INSTALL.md)"
 }
 
-check_gated() {  # warn (do not fail) if a gated model file is absent
-  local rel="$1" what="$2"
-  [ -e "$MODELS/$rel" ] && { echo "  ok: $what"; return; }
-  echo "  MISSING (gated): $what -> place at $MODELS/$rel   ($3)"
+fetch_mpi() {  # fetch_mpi <domain> <sfile> <out> <cred-prefix>  -- POST your own MPI creds
+  local domain="$1" sfile="$2" out="$3" prefix="$4"
+  local uvar="${prefix}_USERNAME" pvar="${prefix}_PASSWORD"
+  local user="${!uvar:-}" pass="${!pvar:-}"
+  [ -n "$user" ] && [ -n "$pass" ] || return 1
+  mkdir -p "$(dirname "$out")"
+  # Same download.is.tue.mpg.de backend + domain/sfile params that ICON/PIXIE/
+  # WHAM/ARCTIC use; your credentials fetching files you're licensed for.
+  curl -fSL --data-urlencode "username=$user" --data-urlencode "password=$pass" \
+    "https://download.is.tue.mpg.de/download.php?domain=$domain&resume=1&sfile=$sfile" -o "$out"
+}
+
+fetch_smplh_neutral() {  # scripted with MANO creds, else warn + manual instructions
+  local dst="$MODELS/smplh/neutral/model.npz"
+  [ -e "$dst" ] && { echo "  ok: SMPL-H neutral"; return; }
+  local tar="$MODELS/smplh/smplh.tar.xz"
+  if fetch_mpi mano smplh.tar.xz "$tar" MANO 2>/dev/null && tar -xJf "$tar" -C "$MODELS/smplh" 2>/dev/null && [ -e "$dst" ]; then
+    echo "  ok: downloaded + extracted SMPL-H neutral -> $dst"; return
+  fi
+  echo "  MISSING (gated): SMPL-H neutral -> $dst"
+  echo "    auto: set MANO_USERNAME / MANO_PASSWORD (register once at mano.is.tue.mpg.de) and re-run setup;"
+  echo "    or download 'Extended SMPL+H model' (smplh.tar.xz) by hand and extract into $MODELS/smplh/."
 }
 
 echo "== core env =="
@@ -117,8 +135,8 @@ esac
 # --- gated body model (ONE registration; then fully offline) ---------------
 # Only the generators need it (for FK). protomotions needs none of this.
 if [ "$METHOD" != "protomotions" ] && [ -n "$METHOD" ] && [ "$METHOD" != "noop" ]; then
-  echo "== gated body model (one-time registration; then fully offline) =="
-  check_gated "smplh/neutral/model.npz" "SMPL-H neutral (no DMPL, no gender split)" "mano.is.tue.mpg.de"
+  echo "== SMPL-H neutral body model (for feature-step FK) =="
+  fetch_smplh_neutral
 fi
 
 echo

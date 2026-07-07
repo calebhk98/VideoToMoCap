@@ -32,6 +32,11 @@ services:
     environment:
       - VIDEO_CONFIG=configs/dropzone.yaml
       - MODEL_CONFIG=configs/motion_model.yaml
+      # Your OWN MPI credentials so `setup` can auto-download the gated SMPL-H
+      # (register once at mano.is.tue.mpg.de). Left unset -> setup prints manual
+      # instructions instead. Prefer an .env file / secret over inlining here.
+      # - MANO_USERNAME=${MANO_USERNAME:-}
+      # - MANO_PASSWORD=${MANO_PASSWORD:-}
       # After `setup`, run stages offline: uncomment these AND pass `--network none`
       # (e.g. `docker compose run --rm --network none pipeline all`) for a hard guarantee.
       # - HF_HUB_OFFLINE=1

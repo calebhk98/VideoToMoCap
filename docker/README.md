@@ -42,17 +42,18 @@ docker compose run --rm --network none pipeline all
 If a stage errors under `--network none`, something wasn't pre-cached during setup
 — re-run `setup` for that component.
 
-## Gated: exactly one manual download
+## Gated: the SMPL body models (one academic registration)
 
-Everything is scriptable except the SMPL body models (one-time academic
-registration, no redistribution). What you actually need depends on the stage:
+The SMPL family is the only license-gated piece. Register once at
+mano.is.tue.mpg.de, then **`setup` downloads it for you** using your own
+credentials — set `MANO_USERNAME` / `MANO_PASSWORD` (env or compose) and it POSTs
+to MPI's download backend (the same mechanism ICON/PIXIE/WHAM/ARCTIC use) and
+extracts `./models/smplh/neutral/model.npz`. No creds set → it prints the manual
+step instead. What each stage needs:
 
-- **Generators** (momask/mdm/closd): the **neutral SMPL-H** `model.npz` from
-  mano.is.tue.mpg.de → `./models/smplh/neutral/model.npz`. No DMPL, no gender split.
+- **Generators** (momask/mdm/closd): the **neutral SMPL-H** — auto-downloaded as above.
 - **HMR backend / ProtoMotions**: their own SMPL / SMPL-X (same registration).
 - **protomotions** as the *model*: needs no feature-step SMPL at all.
-
-`setup` prints exactly which file is missing and where to put it.
 
 ## CPU-only smoke test (no GPU)
 

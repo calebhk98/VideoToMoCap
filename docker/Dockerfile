@@ -19,7 +19,7 @@ FROM nvidia/cuda:12.1.0-devel-ubuntu20.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        git git-lfs wget bzip2 ca-certificates ffmpeg build-essential \
+        git git-lfs wget curl xz-utils bzip2 ca-certificates ffmpeg build-essential \
     && git lfs install && rm -rf /var/lib/apt/lists/*
 
 # micromamba: a tiny conda that makes per-stage envs cheap and reproducible.
