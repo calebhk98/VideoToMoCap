@@ -259,9 +259,16 @@ python scripts/run_pipeline.py \
     --video-config configs/dropzone.yaml --model-config configs/motion_model.yaml
 ```
 
-Prefer an isolated, offline container (no host pollution)? See `docker/README.md`:
-`docker compose run --rm pipeline setup ...` once, then `docker compose run --rm
---network none pipeline all`.
+Prefer an isolated, offline container (no host pollution)? Three short commands
+(see `docker/README.md`):
+
+```bash
+make build                      # build the image
+make setup                      # one-time online: repos, envs, weights, SMPL-H
+make run                        # videos in ./dropzone -> trained model in ./work
+```
+
+Override the backend/method with `make setup BACKEND=wham METHOD=mdm`.
 
 Need a one-off override? Any config field that matters at the CLI has a flag
 (`--limit 5` for a smoke test, `--gpus 0`, `--workers-per-gpu 2`, `--config other.yaml`,

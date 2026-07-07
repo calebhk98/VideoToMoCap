@@ -97,7 +97,11 @@ class MotionModelConfig:
     """Training steps. 80k/batch-64/lr-1e-4 mirrors the priorMDM fine-tune recipe."""
 
     batch_size: int = 64
+    """Samples per optimization step. Lower it if the trainer runs out of VRAM."""
+
     lr: float = 1.0e-4
+    """Learning rate. 1e-4 is deliberately low for fine-tuning -- it adapts the
+    pretrained prior toward your style without washing it out."""
 
     target_fps: int = 20
     """HumanML3D + MDM operate at 20 fps. Pipeline 1 should already export at 20;

@@ -4,20 +4,23 @@ Runs the whole thing (video → dataset → motion model) isolated in a containe
 no host pollution. After a one-time online setup, every stage runs offline from
 mounted volumes.
 
-## Quick start
+## Quick start (three commands)
 
 ```bash
-docker compose build                                          # slim: only the core env
-docker compose run --rm pipeline setup --backend gvhmr --method momask   # one-time, ONLINE
-# → place your ONE gated download under ./models (see "Gated" below)
-docker compose run --rm pipeline all                          # video → model
+make build                                # slim image: only the core env
+make setup                                # one-time, ONLINE (BACKEND=gvhmr METHOD=momask)
+make run                                  # video → trained model, offline
 ```
+
+Override the stages: `make setup BACKEND=wham METHOD=mdm`. Other targets:
+`make dataset`, `make train`, `make shell`, `make selftest`.
 
 Drop videos in `./dropzone`; outputs land in `./work`. `setup` clones the repos you
 chose into `./repos`, builds a conda env per stage (from each repo's own env file),
-fetches the scriptable weights, and checks for the gated model.
+fetches the scriptable weights, and (with your MPI creds) the SMPL-H model.
 
-Stages: `setup`, `dataset`, `train`, `all`, `selftest`, `shell`.
+Without `make`, the raw form is `docker compose run --rm [--network none] pipeline
+<stage>` where stage ∈ {setup, dataset, train, all, selftest, shell}.
 
 ## Why one image, many envs
 
