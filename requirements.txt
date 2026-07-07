@@ -2,6 +2,10 @@
 numpy>=1.21
 pyyaml>=5.4        # only needed for load_config(); code paths work without it
 
+# Optional: only needed for the raw-video pre-analysis (skip_empty /
+# auto_camera_motion). The rest of the pipeline runs without it.
+# opencv-python>=4.5
+
 # NOTE: the HMR backends (GVHMR/WHAM/TRAM) and the motion model (MDM) each have
 # their own heavy environments (torch, CUDA, SMPL/SMPL-X body models, SLAM deps).
 # Install those from the upstream repos into dedicated envs; do NOT mix them into

@@ -464,6 +464,26 @@ Two more motion-derived tags, no per-video work:
   conditioning signal ("cluster 3" ≈ walking, etc.). It's clustering, not
   recognition — coarse buckets you can name later, not ground-truth actions.
 
+### Raw-video pre-analysis (`skip_empty`, `auto_camera_motion`)
+
+The only auto-tags that look at *pixels* (before HMR), so they need
+`opencv-python` — installed lazily; the rest of the pipeline runs without it.
+Both sample ~16 frames per clip:
+
+- **`skip_empty: true`** — the big compute saver for security footage, most of
+  which is nobody there. If a clip's mean inter-frame difference is below
+  `empty_activity_threshold`, it's excluded ("empty (no activity)") *before* it
+  reaches the GPU, so you don't waste HMR on empty scenes.
+- **`auto_camera_motion: flag`** — estimates each clip's global pixel shift
+  (phase correlation); a locked-off camera (shift below `camera_motion_threshold`)
+  is tagged `static`, and HMR then skips visual odometry for it (faster) —
+  automating the manual `static_cameras` list. *Caveat: a moving subject filling
+  the frame can inflate the shift, so treat it as a hint; it's conservative
+  (only near-zero shift → static).*
+
+Both run automatically at the start of `hmr`/`run`. If OpenCV isn't installed
+they print a warning and no-op — nothing breaks.
+
 ## Layout
 
 ```
@@ -479,6 +499,7 @@ videotomocap/
   mirror.py            auto left/right-mirror detection + correction
   quality.py           auto clip-quality assessment (teleports/jumps/NaN/static)
   cluster.py           unsupervised motion clusters (action pseudo-labels)
+  video.py             optional raw-video pre-analysis (skip-empty, camera motion)
   cli.py               `python -m videotomocap ...`
   backends/
     base.py            HMRBackend ABC + rotation/SMPL-family conversion helpers

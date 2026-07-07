@@ -163,6 +163,21 @@ class PipelineConfig:
     """If > 0, k-means the clips into this many motion clusters and tag each with
     an ``action_cluster`` id (for conditioning the motion model). 0 = off."""
 
+    # --- Raw-video pre-analysis (needs OpenCV; lazy) ---------------------
+    skip_empty: bool = False
+    """Sample each clip and skip HMR on ones with no activity (empty security
+    footage) -- excluded with note 'empty'. Needs opencv-python."""
+
+    empty_activity_threshold: float = 0.01
+    """Mean inter-frame difference (0-1) below this = an empty/static clip."""
+
+    auto_camera_motion: str = "off"
+    """Auto-detect static vs moving cameras from raw video (global pixel shift) to
+    skip visual odometry on locked-off cams. 'off' or 'flag'. Needs opencv-python."""
+
+    camera_motion_threshold: float = 2.0
+    """Median global pixel shift below this = a static camera (skip VO)."""
+
     # --- Dataset ---------------------------------------------------------
     target_fps: float = 30.0
     """Frame rate every clip is resampled to before anonymization/export, so the
@@ -223,6 +238,8 @@ class PipelineConfig:
         # as False -- coerce these mode fields back to their string values.
         self.auto_mirror = _coerce_mode(self.auto_mirror, {"off", "flag", "correct"}, "auto_mirror")
         self.quality_filter = _coerce_mode(self.quality_filter, {"off", "flag", "exclude"}, "quality_filter")
+        self.auto_occlusion = _coerce_mode(self.auto_occlusion, {"off", "flag"}, "auto_occlusion")
+        self.auto_camera_motion = _coerce_mode(self.auto_camera_motion, {"off", "flag"}, "auto_camera_motion")
 
     # Convenience paths -------------------------------------------------
     @property

@@ -69,6 +69,10 @@ auto_occlusion: off       # off | flag
 # motion model to condition on). 0 = off.
 cluster_actions: 0        # e.g. 8
 
+# Raw-video pre-analysis (needs opencv-python; pip install opencv-python).
+skip_empty: off           # skip HMR on clips with no activity (empty footage)
+auto_camera_motion: off   # off | flag -- detect static cams to skip visual odometry
+
 # --- Dataset ---------------------------------------------------------------
 target_fps: 30.0
 min_clip_frames: 30       # drop motion snippets shorter than 1 s

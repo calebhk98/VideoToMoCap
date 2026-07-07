@@ -38,6 +38,8 @@ videotomocap/
   quality.py      Per-clip plausibility from the motion (teleport/pose-jump/NaN/
                   static). quality_filter = off|flag|exclude.
   cluster.py      Unsupervised motion clusters -> action_cluster pseudo-labels.
+  video.py        Optional raw-video pre-analysis (skip-empty, static-camera
+                  detection). The one place the core touches pixels -> lazy cv2.
   cli.py          `python -m videotomocap <cmd>`. Thin wrapper over the above.
   backends/
     base.py         HMRBackend ABC + rotation/SMPL conversion helpers (pure NumPy).

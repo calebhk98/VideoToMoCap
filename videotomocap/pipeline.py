@@ -52,6 +52,48 @@ def _pose_path(cfg: PipelineConfig, clip: Clip) -> Path:
     return cfg.pose_dir / f"{clip.clip_id}.npz"
 
 
+def _static_hint(cfg: PipelineConfig, clip: Clip) -> bool:
+    """Whether HMR can skip visual odometry: a configured static camera, or one
+    auto-detected as static by the video pre-analysis."""
+    return clip.camera in set(cfg.static_cameras) or clip.camera_motion == "static"
+
+
+def analyze_videos(cfg: PipelineConfig, manifest: Manifest, *, analyze_fn=None) -> dict:
+    """Pre-HMR raw-video pass: skip empty clips and/or tag camera motion.
+
+    Samples each PENDING clip's pixels (OpenCV). ``skip_empty`` excludes clips
+    with no activity before they hit the GPU; ``auto_camera_motion`` tags each as
+    static/moving so HMR can skip visual odometry on locked-off cameras. No-op
+    unless one is enabled; degrades to a warning (not an error) if OpenCV is
+    missing.
+    """
+    if not cfg.skip_empty and cfg.auto_camera_motion == "off":
+        return {"skipped_empty": 0, "static": 0, "moving": 0}
+
+    from .video import VideoError, analyze_video
+    probe = analyze_fn or analyze_video
+    skipped = static = moving = 0
+    for clip in manifest.by_status(ingest.PENDING):
+        try:
+            info = probe(cfg.footage_root / clip.rel_path)
+        except VideoError as exc:
+            print(f"video pre-analysis disabled: {exc}")
+            return {"skipped_empty": skipped, "static": static, "moving": moving}
+        if cfg.skip_empty and info["activity"] < cfg.empty_activity_threshold:
+            clip.status = ingest.EXCLUDED
+            clip.note = "empty (no activity)"
+            skipped += 1
+            continue
+        if cfg.auto_camera_motion == "flag":
+            is_static = info["camera_motion"] < cfg.camera_motion_threshold
+            clip.camera_motion = "static" if is_static else "moving"
+            static += int(is_static)
+            moving += int(not is_static)
+    manifest.save(cfg.manifest_path)
+    print(f"video pre-analysis: {skipped} empty skipped, {static} static / {moving} moving cameras")
+    return {"skipped_empty": skipped, "static": static, "moving": moving}
+
+
 def _compute_and_save(cfg: PipelineConfig, clip: Clip) -> int:
     """Run HMR + anonymize for one clip and write its pose npz. Returns n_frames.
 
@@ -61,9 +103,8 @@ def _compute_and_save(cfg: PipelineConfig, clip: Clip) -> int:
     backend = get_backend(cfg)
     video = cfg.footage_root / clip.rel_path
     hmr_out = cfg.hmr_dir / clip.clip_id
-    static = clip.camera in set(cfg.static_cameras)
 
-    motion = backend.run(video, hmr_out, static=static)
+    motion = backend.run(video, hmr_out, static=_static_hint(cfg, clip))
     motion = resample_fps(motion, cfg.target_fps)
     if cfg.refine:
         from .refine import refine_motion  # optional post-processing; keep import lazy
@@ -122,6 +163,7 @@ def run_hmr(
     ``vram_per_worker_mb`` is set). ``workers`` overrides the total directly. One
     bad clip never kills the batch; the manifest is checkpointed after each clip.
     """
+    analyze_videos(cfg, manifest)  # skip empties / tag camera motion before the GPU stage
     devices = resolve_devices(gpus if gpus is not None else cfg.gpus)
     todo = _todo(manifest, limit)
     plan, todo = _plan_workers(cfg, manifest, devices, todo, workers, free_mem_fn)

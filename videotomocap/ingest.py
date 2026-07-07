@@ -56,6 +56,9 @@ class Clip:
     """Auto-detected quality findings from ``videotomocap.quality`` (empty = clean)."""
     action_cluster: int = -1
     """Unsupervised motion-cluster id (``cluster_actions``); -1 = unassigned."""
+    camera_motion: Optional[str] = None
+    """Auto-detected camera motion: 'static' or 'moving' (``auto_camera_motion``);
+    None = not analyzed. 'static' lets HMR skip visual odometry for this clip."""
     unreliable_joints: List[int] = field(default_factory=list)
     """SMPL joint indices whose motion is HMR-inferred (out of frame), not
     observed -- derived from ``cfg.camera_occlusions`` / ``partial_body_cameras``.
