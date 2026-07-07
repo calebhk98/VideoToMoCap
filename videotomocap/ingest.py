@@ -75,7 +75,7 @@ class Manifest:
         payload = {"footage_root": self.footage_root, "clips": [asdict(c) for c in self.clips]}
         tmp = path.with_suffix(path.suffix + ".tmp")
         tmp.write_text(json.dumps(payload, indent=2))
-        tmp.replace(path)  # atomic on POSIX -> never leaves a half-written manifest
+        tmp.replace(path)  # os.replace: atomic overwrite on Linux AND Windows
 
     @classmethod
     def load(cls, path: Path) -> "Manifest":
@@ -205,7 +205,9 @@ def exclude(
     for c in manifest.clips:
         if c.status == EXCLUDED:
             continue
-        hit = c.clip_id in clip_ids or any(fnmatch.fnmatch(c.rel_path, p) for p in patterns)
+        # fnmatchcase (not fnmatch) so a pattern matches identically on Windows and
+        # Linux -- plain fnmatch is case-insensitive on Windows only.
+        hit = c.clip_id in clip_ids or any(fnmatch.fnmatchcase(c.rel_path, p) for p in patterns)
         if hit:
             c.status = EXCLUDED
             c.note = note
@@ -221,7 +223,9 @@ def include(manifest: Manifest, *, clip_ids: Iterable[str] = (), patterns: Itera
     for c in manifest.clips:
         if c.status != EXCLUDED:
             continue
-        hit = c.clip_id in clip_ids or any(fnmatch.fnmatch(c.rel_path, p) for p in patterns)
+        # fnmatchcase (not fnmatch) so a pattern matches identically on Windows and
+        # Linux -- plain fnmatch is case-insensitive on Windows only.
+        hit = c.clip_id in clip_ids or any(fnmatch.fnmatchcase(c.rel_path, p) for p in patterns)
         if hit:
             c.status = PENDING
             c.note = None

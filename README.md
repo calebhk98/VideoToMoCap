@@ -346,6 +346,48 @@ don't false-positive). Run it anytime: `python scripts/check_code_health.py --al
 Thresholds are env-overridable (`CH_MAX_LINES`, `CH_MAX_BYTES`, `CH_MAX_INDENT`);
 bypass a single commit with `git commit --no-verify`.
 
+## Platforms (Windows + Linux)
+
+**This orchestration package runs natively on both, no changes needed.** It's
+pure Python: `pathlib` everywhere, atomic manifest writes via `os.replace`
+(atomic on Windows too), GPU detection via `nvidia-smi` (present on both), and
+glob exclusions use `fnmatchcase` so `exclude_patterns` match *identically* on
+Windows and Linux (plain `fnmatch` is case-insensitive on Windows only — we
+avoid it). The GPU-free path — ingest, exclude, anonymize, dataset build, the
+`noop` backend, all tests — works the same on either OS. Config paths can be
+Windows-style; patterns match the clip's relative path in `/`-form.
+
+**The one caveat is the heavy neural backends, not this code.** GVHMR / WHAM /
+TRAM / SMPLest-X pull in Linux-oriented CUDA extensions (DROID-SLAM, Detectron2,
+PyTorch3D) that are painful or unsupported on *native* Windows. On Windows the
+reliable path for those is **WSL2** (Ubuntu + CUDA), where they run exactly as on
+Linux — this package sits on top unchanged. Dev-only note: the pre-commit hook is
+a shell script, so on Windows enable it from **Git Bash** (bundled with Git for
+Windows); it's not needed to *run* the pipeline.
+
+## Input types (phone videos, selfies, ...)
+
+Any monocular video works — it doesn't have to be security footage.
+
+- **Phone / handheld recordings: yes, well.** Moving-camera is exactly what the
+  world-grounded backends (GVHMR/WHAM/TRAM, and **WHAC** for whole-body+hands)
+  are built for. Just *don't* list that source under `static_cameras`, so visual
+  odometry/SLAM handles the motion. Variable frame rate is fine — every clip is
+  resampled to `target_fps`. Portrait orientation is fine (rotation metadata is
+  honored by the decoder).
+- **Selfie *videos* (front camera, arm's length): yes, with a caveat.** They're
+  usually upper-body / close-up, i.e. the partial-body case — tag the source with
+  `camera_occlusions: {selfie: [legs]}` so the inferred legs are flagged, and
+  prefer a close-up-robust backend (`smplestx`, `multihmr`, or `fusion` for good
+  hands). Front cameras sometimes save a *mirrored* file → left/right would be
+  swapped; check one clip and pre-flip if so.
+- **A single selfie *photo*: no.** One still is one frame — below
+  `min_clip_frames`, so it's dropped. This pipeline is about *motion over time*;
+  it needs video (or a burst), not a snapshot.
+
+So: your phone clips are great input; selfie videos work if you tag them as
+upper-body; single photos don't (nothing moves to capture).
+
 ## Layout
 
 ```

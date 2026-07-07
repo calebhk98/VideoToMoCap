@@ -105,6 +105,10 @@ Match the existing style. Concretely:
   writing a `.tmp` then `replace()`).
 - **No new heavy dependency** without a strong reason — this repo's value is
   being a light orchestration layer over the heavy upstream tools.
+- **Stay cross-platform (Windows + Linux).** Use `pathlib`, store rel paths as
+  `as_posix()`, atomic writes via `os.replace`, and `fnmatch.fnmatchcase` (never
+  bare `fnmatch`, which is case-insensitive on Windows only). No `shell=True`, no
+  POSIX-only calls in the core.
 
 ## How to add a new HMR backend
 

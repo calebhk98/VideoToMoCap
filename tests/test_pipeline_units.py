@@ -104,6 +104,16 @@ def test_exclude_by_id_and_include_and_idempotent():
         assert m.get(cid).status == ingest.PENDING
 
 
+def test_exclude_is_case_sensitive_cross_platform():
+    # fnmatchcase -> deterministic on Windows and Linux alike (plain fnmatch would
+    # match case-insensitively on Windows, diverging between OSes).
+    m = ingest.Manifest(footage_root="x", clips=[
+        ingest.Clip(clip_id="a", camera="c", rel_path="cam1/Family/clip.mp4"),
+    ])
+    assert ingest.exclude(m, patterns=["*/family/*"]) == 0   # lowercase pattern misses
+    assert ingest.exclude(m, patterns=["*/Family/*"]) == 1   # exact case hits
+
+
 def test_scan_applies_config_exclusions():
     with tempfile.TemporaryDirectory() as tmp:
         cfg = _noop_cfg(Path(tmp))
