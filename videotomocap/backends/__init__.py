@@ -61,6 +61,7 @@ _REGISTRY = {
 
 
 def get_backend(cfg) -> HMRBackend:
+    """Instantiate the backend named by ``cfg.backend`` (case-insensitive)."""
     name = cfg.backend.lower()
     if name not in _REGISTRY:
         raise BackendError(f"Unknown backend {cfg.backend!r}. Choose from {sorted(_REGISTRY)}.")
@@ -68,6 +69,7 @@ def get_backend(cfg) -> HMRBackend:
 
 
 def available_backends():
+    """List registered backend names, sorted."""
     return sorted(_REGISTRY)
 
 

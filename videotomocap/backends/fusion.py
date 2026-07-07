@@ -288,6 +288,8 @@ class FusionBackend(HMRBackend):
     name = "fusion"
 
     def run(self, video_path: Path, out_dir: Path, *, static: bool = False) -> SmplMotion:
+        """Run the configured body backend and hand estimator, then graft the
+        hand output onto the body motion (see :func:`graft_hands`)."""
         from . import get_backend  # lazy: avoid circular import at module load
 
         body_name = getattr(self.cfg, "body_backend", "gvhmr")

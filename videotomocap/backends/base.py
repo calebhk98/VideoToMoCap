@@ -14,7 +14,8 @@ from ..pose import SMPL_BODY_POSE_DIM, SMPL_POSE_DIM, SmplMotion
 
 
 class BackendError(RuntimeError):
-    pass
+    """Raised for backend setup/execution problems (missing repo, subprocess
+    failure, unparseable/unexpected output shape) -- always with actionable context."""
 
 
 class HMRBackend(ABC):
@@ -81,9 +82,7 @@ def _matrix_to_axis_angle(mat: np.ndarray) -> np.ndarray:
     trace = m00 + m11 + m22
 
     # Four numerically-distinct branches; each is well-conditioned in its region.
-    def _branch(s, w, x, y, z):
-        return w, x, y, z
-
+    # Each b* is the quaternion (w,x,y,z) computed with that branch's divisor.
     s0 = np.sqrt(np.maximum(trace + 1.0, 1e-12)) * 2.0
     b0 = (0.25 * s0, (m21 - m12) / s0, (m02 - m20) / s0, (m10 - m01) / s0)
     s1 = np.sqrt(np.maximum(1.0 + m00 - m11 - m22, 1e-12)) * 2.0

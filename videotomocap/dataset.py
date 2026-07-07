@@ -7,8 +7,9 @@ emitting AMASS-shaped files we plug into that ecosystem instead of inventing a
 private format.
 
 Each AMASS npz carries:
-    poses            (T, 156)  SMPL-H layout; our SMPL-72 sits in the first 72,
-                               the remaining hand/face slots are zero (neutral).
+    poses            (T, 156)  SMPL-H layout; our SMPL-72 body maps to the first
+                               66 slots, MANO hands fill the hand slots when
+                               present (else neutral zeros).
     trans            (T, 3)    root translation (metres)
     betas            (16,)     zeros -> neutral body (identity already stripped)
     gender           str

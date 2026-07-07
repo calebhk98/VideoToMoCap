@@ -18,6 +18,8 @@ from .base import HMRBackend
 
 
 class NoopBackend(HMRBackend):
+    """GPU-free synthetic backend that powers the tests; see module docstring."""
+
     name = "noop"
 
     def run(self, video_path: Path, out_dir: Path, *, static: bool = False) -> SmplMotion:

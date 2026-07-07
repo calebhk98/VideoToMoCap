@@ -19,6 +19,8 @@ from .base import BackendError, HMRBackend, assemble_smpl72, to_axis_angle
 
 
 class WHAMBackend(HMRBackend):
+    """Body-only, world-grounded backend; see module docstring for details."""
+
     name = "wham"
 
     def run(self, video_path: Path, out_dir: Path, *, static: bool = False) -> SmplMotion:

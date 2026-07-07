@@ -132,6 +132,7 @@ def cmd_run(args) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Build the ``scan``/``exclude``/``status``/``list``/``hmr``/``build``/``run`` subcommands."""
     p = argparse.ArgumentParser(prog="videotomocap", description=__doc__)
     p.add_argument("--config", help="path to pipeline YAML config")
     p.add_argument("--footage-root", dest="footage_root", help="override footage root")
@@ -165,6 +166,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv=None) -> int:
+    """Parse argv and dispatch to the selected subcommand's handler."""
     args = build_parser().parse_args(argv)
     return args.func(args)
 

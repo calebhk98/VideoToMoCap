@@ -24,6 +24,8 @@ from .base import BackendError, HMRBackend, assemble_smpl72
 
 
 class GVHMRBackend(HMRBackend):
+    """Default body-only backend; see module docstring for install/config."""
+
     name = "gvhmr"
 
     def run(self, video_path: Path, out_dir: Path, *, static: bool = False) -> SmplMotion:

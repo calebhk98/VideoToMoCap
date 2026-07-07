@@ -75,6 +75,8 @@ class SmplXFramesBackend(HMRBackend):
         return None
 
     def _stack(self, dicts: List[Dict[str, np.ndarray]], video_path: Path, out_dir: Path) -> SmplMotion:
+        """Stack per-frame SMPL-X dicts into arrays and assemble the SmplMotion,
+        carrying hands through when the per-frame files provide them."""
         go = np.stack([self._pick(d, "global_orient", "root_pose").reshape(3) for d in dicts])
         bp = np.stack([self._pick(d, "body_pose").reshape(-1) for d in dicts])
         poses = assemble_smpl72(go, bp)

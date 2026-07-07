@@ -25,6 +25,8 @@ _STAGES = (
 
 
 class TRAMBackend(HMRBackend):
+    """Multi-stage SLAM-based body-only backend; see module docstring for details."""
+
     name = "tram"
 
     def run(self, video_path: Path, out_dir: Path, *, static: bool = False) -> SmplMotion:
