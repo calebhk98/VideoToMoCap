@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+venv/
+
+# Pipeline outputs / large artifacts — never commit footage or motion data
+work/
+footage/
+*.pt
+*.pkl
+*.npz
+*.npy
+!tests/**/*.npz

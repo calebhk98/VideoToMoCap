@@ -1,0 +1,38 @@
+# Starting hyperparameters for fine-tuning MDM on your personal motion dataset.
+# Mirrors the priorMDM control-task recipe (80k steps, batch 64). These are a
+# starting point — watch the eval FID/diversity and adjust.
+#
+# Use with the MDM repo's train script, e.g.:
+#   python -m train.train_mdm --overwrite \
+#       --save_dir save/mymotion \
+#       --dataset humanml \
+#       --data_dir work/mdm_data \
+#       --resume_checkpoint save/humanml_trans_enc_512/model000475000.pt \
+#       --num_steps 80000 --batch_size 64 --lr 1e-4
+
+base_checkpoint: save/humanml_trans_enc_512/model000475000.pt  # pretrained HumanML3D prior
+dataset: humanml            # feature format the data was prepared in
+data_dir: work/mdm_data
+
+# optimization
+num_steps: 80000
+batch_size: 64
+lr: 1.0e-4                  # lower than from-scratch (2e-4..3e-4) to preserve the prior
+weight_decay: 0.0
+lr_anneal_steps: 0
+
+# diffusion / architecture (must match the checkpoint you resume)
+diffusion_steps: 1000
+noise_schedule: cosine
+latent_dim: 512
+layers: 8
+cond_mask_prob: 0.1        # keep classifier-free guidance capability
+guidance_param: 2.5        # default MDM sampling guidance
+
+# logging
+save_interval: 5000
+eval_during_training: true
+
+# conditioning: 'no' for unconditional personal-style model (footage has no text),
+# switch to 'text' once texts/ captions are filled in.
+cond_mode: "no"

@@ -1,0 +1,185 @@
+"""Step 0 -- ingest raw footage into a manifest, and exclude unwanted clips.
+
+Ingestion is deliberately dumb and reversible: it only records *what exists* and
+*what state each clip is in*.  Nothing is copied or transcoded.  The manifest is
+the single source of truth the rest of the pipeline reads from.
+
+Clip states
+-----------
+    pending   -- discovered, not yet processed
+    excluded  -- manually removed from processing (e.g. the two family visits)
+    hmr_done  -- human-mesh recovery produced motion for this clip
+    pose_done -- shape stripped, anonymized pose written
+    failed    -- backend errored on this clip (see .error)
+"""
+
+from __future__ import annotations
+
+import fnmatch
+import hashlib
+import json
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import Dict, Iterable, List, Optional
+
+from .config import PipelineConfig
+
+PENDING = "pending"
+EXCLUDED = "excluded"
+HMR_DONE = "hmr_done"
+POSE_DONE = "pose_done"
+FAILED = "failed"
+
+
+@dataclass
+class Clip:
+    clip_id: str
+    """Stable id derived from the relative path (safe for filenames)."""
+    camera: str
+    rel_path: str
+    """Path relative to ``footage_root`` (portable across machines)."""
+    status: str = PENDING
+    error: Optional[str] = None
+    n_frames: Optional[int] = None
+    note: Optional[str] = None
+
+    def is_processable(self) -> bool:
+        return self.status in (PENDING, FAILED)
+
+
+@dataclass
+class Manifest:
+    footage_root: str
+    clips: List[Clip] = field(default_factory=list)
+
+    # -- persistence ----------------------------------------------------
+    def save(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {"footage_root": self.footage_root, "clips": [asdict(c) for c in self.clips]}
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(json.dumps(payload, indent=2))
+        tmp.replace(path)  # atomic on POSIX -> never leaves a half-written manifest
+
+    @classmethod
+    def load(cls, path: Path) -> "Manifest":
+        payload = json.loads(Path(path).read_text())
+        clips = [Clip(**c) for c in payload["clips"]]
+        return cls(footage_root=payload["footage_root"], clips=clips)
+
+    # -- queries --------------------------------------------------------
+    def by_status(self, *statuses: str) -> List[Clip]:
+        return [c for c in self.clips if c.status in statuses]
+
+    def get(self, clip_id: str) -> Clip:
+        for c in self.clips:
+            if c.clip_id == clip_id:
+                return c
+        raise KeyError(clip_id)
+
+    def counts(self) -> Dict[str, int]:
+        out: Dict[str, int] = {}
+        for c in self.clips:
+            out[c.status] = out.get(c.status, 0) + 1
+        return out
+
+
+def _clip_id(rel_path: str) -> str:
+    """Human-readable-ish id: sanitized stem + short hash to guarantee uniqueness."""
+    stem = Path(rel_path).stem
+    safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in stem)
+    digest = hashlib.sha1(rel_path.encode()).hexdigest()[:8]
+    return f"{safe}_{digest}"
+
+
+def _camera_of(rel_path: Path, depth: int) -> str:
+    parts = rel_path.parts
+    if depth <= 0 or len(parts) <= 1:
+        return "cam"
+    return "/".join(parts[:depth])
+
+
+def scan(cfg: PipelineConfig) -> Manifest:
+    """Walk ``footage_root`` and build a fresh manifest of all candidate clips."""
+    root = cfg.footage_root
+    if not root.exists():
+        raise FileNotFoundError(f"footage_root does not exist: {root}")
+
+    exts = tuple(e.lower() for e in cfg.video_exts)
+    clips: List[Clip] = []
+    for path in sorted(root.rglob("*")):
+        if not path.is_file() or path.suffix.lower() not in exts:
+            continue
+        rel = path.relative_to(root)
+        rel_str = rel.as_posix()
+        clips.append(
+            Clip(
+                clip_id=_clip_id(rel_str),
+                camera=_camera_of(rel, cfg.camera_dir_depth),
+                rel_path=rel_str,
+            )
+        )
+    return Manifest(footage_root=str(root), clips=clips)
+
+
+def refresh(cfg: PipelineConfig, manifest: Manifest) -> Manifest:
+    """Merge a new scan into an existing manifest, preserving per-clip state.
+
+    New files become ``pending``; existing clips keep their status/exclusions;
+    clips whose file has disappeared are dropped.
+    """
+    fresh = scan(cfg)
+    old_by_id = {c.clip_id: c for c in manifest.clips}
+    merged: List[Clip] = []
+    for c in fresh.clips:
+        prev = old_by_id.get(c.clip_id)
+        if prev is not None:
+            c.status = prev.status
+            c.error = prev.error
+            c.n_frames = prev.n_frames
+            c.note = prev.note
+        merged.append(c)
+    return Manifest(footage_root=fresh.footage_root, clips=merged)
+
+
+def exclude(
+    manifest: Manifest,
+    *,
+    clip_ids: Iterable[str] = (),
+    patterns: Iterable[str] = (),
+    note: str = "manually excluded",
+) -> int:
+    """Mark clips as excluded so no downstream stage will touch them.
+
+    ``patterns`` are glob patterns matched against the relative path -- the
+    intended way to pull out the two family-visit date ranges in one shot, e.g.
+    ``exclude(m, patterns=["*/2024-12-25/*", "cam07/2025-03-*"])``.
+    Returns the number of clips newly excluded.
+    """
+    clip_ids = set(clip_ids)
+    patterns = list(patterns)
+    n = 0
+    for c in manifest.clips:
+        if c.status == EXCLUDED:
+            continue
+        hit = c.clip_id in clip_ids or any(fnmatch.fnmatch(c.rel_path, p) for p in patterns)
+        if hit:
+            c.status = EXCLUDED
+            c.note = note
+            n += 1
+    return n
+
+
+def include(manifest: Manifest, *, clip_ids: Iterable[str] = (), patterns: Iterable[str] = ()) -> int:
+    """Reverse an exclusion (bring clips back to ``pending``)."""
+    clip_ids = set(clip_ids)
+    patterns = list(patterns)
+    n = 0
+    for c in manifest.clips:
+        if c.status != EXCLUDED:
+            continue
+        hit = c.clip_id in clip_ids or any(fnmatch.fnmatch(c.rel_path, p) for p in patterns)
+        if hit:
+            c.status = PENDING
+            c.note = None
+            n += 1
+    return n
