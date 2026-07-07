@@ -109,16 +109,35 @@ Match the existing style. Concretely:
 4. Register it in `backends/__init__.py` `_REGISTRY`.
 5. Backends are selected by `PipelineConfig.backend` — swapping is one config
    line. Keep that true.
+6. `_run_cmd` already pins the subprocess to `cfg.cuda_device` when the parallel
+   runner assigns a GPU — use it for any subprocess so parallelism works.
+
+## Parallelism
+
+`pipeline.run_hmr(..., workers=N, gpus=[...])` fans clips out over a thread pool,
+pinning one clip per GPU (heavy work is in the backend subprocess, GIL released).
+Keep it crash-resumable: mutate the manifest and `save()` under the lock, one
+clip at a time. Clip work must stay independent (own scratch dir, own pose npz) —
+don't introduce shared mutable state between clips.
+
+## Code health (enforced on commit)
+
+`scripts/check_code_health.py` runs as a pre-commit hook (enable with
+`bash scripts/install_hooks.sh`). It blocks files > 500 lines, > 1 MB, or nested
+> 6 blocks deep. If you're about to exceed these, that's the signal to split the
+file or extract a helper — not to bump the threshold. It measures *true* block
+nesting (tokenize), so it enforces the "never nest" rule directly.
 
 ## Running things
 
 ```bash
 pip install -r requirements.txt
 python scripts/selftest.py            # end-to-end, no GPU — must stay green
-python tests/test_conversions.py      # unit tests — must stay green
+python -m pytest tests/               # unit tests — must stay green
+python scripts/check_code_health.py --all   # size/indent gate
 python -m videotomocap --config configs/dropzone.yaml scan   # real usage
 ```
 
-Before committing non-trivial changes, run both test entry points above. Keep
-commit messages descriptive; branch off the default branch (don't commit
-straight to it).
+Before committing non-trivial changes, run the tests + self-test + health check
+above. Keep commit messages descriptive; branch off the default branch (don't
+commit straight to it).

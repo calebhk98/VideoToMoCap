@@ -17,6 +17,13 @@ backend_python: /opt/miniconda3/envs/gvhmr/bin/python
 # List truly-fixed cameras (top-folder names) to skip visual odometry.
 static_cameras: []
 
+# Cameras that only see part of the body -> clips tagged `partial_body`.
+partial_body_cameras: []
+
+# --- Parallelism (scale across GPUs) ---
+workers: 2                 # clips at once; ~= number of GPUs
+gpus: ["0", "1"]           # one clip per GPU, round-robin
+
 # --- Anonymization ---
 drop_shape: true
 keep_translation: true

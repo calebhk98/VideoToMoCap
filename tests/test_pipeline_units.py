@@ -182,6 +182,45 @@ def test_run_all_end_to_end():
         assert stats.n_clips == 3 and stats.total_seconds > 0
 
 
+def test_run_hmr_parallel_matches_sequential():
+    # noop is deterministic per clip name, so parallel and sequential must agree.
+    frames_by_mode = {}
+    for workers in (1, 3):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _noop_cfg(Path(tmp))
+            m = ingest.scan(cfg)
+            pipeline.run_hmr(cfg, m, workers=workers, gpus=["0", "1"])
+            assert len(m.by_status(ingest.POSE_DONE)) == 3
+            assert len(m.by_status(ingest.FAILED)) == 0
+            frames_by_mode[workers] = {c.clip_id: c.n_frames for c in m.clips}
+    assert frames_by_mode[1] == frames_by_mode[3]  # identical results
+
+
+def test_parallel_records_failures_and_continues():
+    with tempfile.TemporaryDirectory() as tmp:
+        cfg = _noop_cfg(Path(tmp))
+        m = ingest.scan(cfg)
+        be_pipeline = pipeline.get_backend
+        pipeline.get_backend = lambda c: _FlakyBackend(c)
+        try:
+            pipeline.run_hmr(cfg, m, workers=2, gpus=["0", "1"])
+        finally:
+            pipeline.get_backend = be_pipeline
+        statuses = {c.rel_path: c.status for c in m.clips}
+        assert statuses["cam01/2024-05-01/b.mp4"] == ingest.FAILED
+        assert statuses["cam01/2024-05-01/a.mp4"] == ingest.POSE_DONE
+
+
+def test_gpu_pinning_sets_cuda_visible_devices():
+    from videotomocap.backends.gvhmr import GVHMRBackend
+    cfg = pipeline._clone_for_device(PipelineConfig(backend="gvhmr"), "1")
+    assert cfg.cuda_device == "1"
+    env = GVHMRBackend(cfg)._subprocess_env()
+    assert env["CUDA_VISIBLE_DEVICES"] == "1"
+    # no device assigned -> inherit parent env unchanged
+    assert GVHMRBackend(PipelineConfig(backend="gvhmr"))._subprocess_env() is None
+
+
 # --- dataset ----------------------------------------------------------------
 
 def test_build_dataset_empty_and_min_frames_and_determinism():

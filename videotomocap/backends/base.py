@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -41,8 +42,9 @@ class HMRBackend(ABC):
 
     # -- helpers shared by subprocess-based backends --------------------
     def _run_cmd(self, cmd: List[str], cwd: Optional[Path] = None) -> None:
+        env = self._subprocess_env()
         try:
-            subprocess.run(cmd, cwd=str(cwd) if cwd else None, check=True)
+            subprocess.run(cmd, cwd=str(cwd) if cwd else None, check=True, env=env)
         except FileNotFoundError as exc:
             raise BackendError(
                 f"Could not launch {self.name}: {exc}. Is `{self.cfg.backend_python}` on PATH "
@@ -50,6 +52,16 @@ class HMRBackend(ABC):
             ) from exc
         except subprocess.CalledProcessError as exc:
             raise BackendError(f"{self.name} exited with status {exc.returncode} on {cmd}") from exc
+
+    def _subprocess_env(self) -> Optional[dict]:
+        """Env for the backend subprocess -- pins its GPU when the parallel runner
+        assigned one (so N workers land on N different cards)."""
+        device = getattr(self.cfg, "cuda_device", None)
+        if device is None:
+            return None  # inherit the parent env unchanged
+        env = dict(os.environ)
+        env["CUDA_VISIBLE_DEVICES"] = str(device)
+        return env
 
     def _require_repo(self) -> Path:
         repo = self.cfg.backend_repo

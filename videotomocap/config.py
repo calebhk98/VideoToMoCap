@@ -50,6 +50,13 @@ class PipelineConfig:
     static_cameras: List[str] = field(default_factory=list)
     """Camera ids known to be fixed/static -> skip visual odometry (GVHMR ``-s``)."""
 
+    partial_body_cameras: List[str] = field(default_factory=list)
+    """Cameras that only ever see part of the body (e.g. a waist-up desk view).
+    HMR still regresses a full SMPL body from these, but the out-of-frame joints
+    (typically the legs) are *inferred*, not observed. Clips from these cameras
+    are tagged ``partial_body`` in the manifest so you can filter/mask them; see
+    README 'Partial-body / truncated footage'."""
+
     backend_extra_args: List[str] = field(default_factory=list)
     """Extra argv tokens appended verbatim to the backend's demo command."""
 
@@ -95,6 +102,20 @@ class PipelineConfig:
 
     gender: str = "neutral"
     """SMPL body gender label written into every exported AMASS npz."""
+
+    # --- Parallelism -----------------------------------------------------
+    workers: int = 1
+    """How many clips to process concurrently. Clips are independent, so this
+    scales near-linearly until GPUs saturate. Default 1 (sequential)."""
+
+    gpus: List[str] = field(default_factory=list)
+    """GPU ids to spread work across, e.g. ['0','1'] for a dual-3090 box. Workers
+    are pinned round-robin (one clip per GPU at a time). Empty -> inherit the
+    ambient CUDA_VISIBLE_DEVICES / whatever the backend picks."""
+
+    cuda_device: Optional[str] = None
+    """Internal: the GPU id assigned to THIS run, exported as CUDA_VISIBLE_DEVICES
+    to the backend subprocess. Set per-worker by the parallel runner; not YAML."""
 
     def __post_init__(self) -> None:
         self.footage_root = Path(self.footage_root)

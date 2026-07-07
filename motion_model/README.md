@@ -24,10 +24,12 @@ primitive.
   transformer layers, latent 512.)
 - **Data.** You have hours of one person. That is plenty to *specialize* a
   pretrained motion prior toward your style, and far too little to learn general
-  human motion from zero. There is **no published scaling law for motion
-  diffusion specifically** — don't import Chinchilla's ~20 tokens/param ratio
-  (that's for autoregressive text). Use the data:param ratio of the checkpoint
-  you fine-tune as your empirical reference point.
+  human motion from zero. Don't import Chinchilla's ~20 tokens/param ratio
+  (that's for autoregressive text) — use the **motion-specific** scaling work
+  that now exists: [ScaMo](https://github.com/shunlinlu/ScaMo_code) (CVPR'25, log
+  test-loss vs compute), Being-M0/MotionLib (ICML'25, data×model), and NVIDIA's
+  Kimodo (2026). All have public code, so you have real reference points for the
+  data:param budget rather than a guess.
 - **Mirrors the video-gen playbook:** start from a general prior, adapt on your
   data.
 

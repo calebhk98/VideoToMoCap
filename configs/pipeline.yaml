@@ -8,7 +8,9 @@ video_exts: [".mp4", ".mov", ".mkv"]
 camera_dir_depth: 1                        # footage/<camera>/<date>/clip.mp4
 
 # --- HMR backend -----------------------------------------------------------
-backend: gvhmr                             # gvhmr | wham | tram | noop
+# Body-only: gvhmr|wham|tram. Whole-body SMPL-X (hands): smplestx|whac|osx|
+# hand4whole|multihmr. Combined: fusion (see configs/fusion_hands.yaml). noop=test.
+backend: gvhmr
 backend_repo: /opt/GVHMR                   # cloned upstream checkout
 backend_python: /opt/miniconda3/envs/gvhmr/bin/python
 backend_extra_args: []
@@ -18,6 +20,15 @@ backend_extra_args: []
 static_cameras:
   - cam01_corner
   - cam02_corner
+
+# Cameras that only see part of the body (e.g. a waist-up desk view). Clips from
+# these are tagged `partial_body` in the manifest -- their out-of-frame joints
+# (legs) are HMR-inferred, not observed. Filter/down-weight them downstream.
+partial_body_cameras: []
+
+# --- Parallelism -----------------------------------------------------------
+workers: 2                                 # clips processed at once (~= #GPUs)
+gpus: ["0", "1"]                            # one clip pinned per GPU, round-robin
 
 # --- Anonymization ---------------------------------------------------------
 drop_shape: true          # discard SMPL betas -> no body identity leaves here

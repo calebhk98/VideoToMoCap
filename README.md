@@ -114,14 +114,42 @@ handled by construction. Two knobs:
   manifest treats them independently. Left as a manual step; not confirmed
   necessary.
 
+### Partial-body / truncated footage (only torso + arms visible)
+
+Security cameras often frame a person waist-up. **HMR methods still output a
+full SMPL body** — they *infer* the out-of-frame joints (usually the legs)
+rather than observing them. So the pipeline never crashes on truncation, but the
+inferred legs are plausible-but-fake motion you don't want polluting a
+"move like me" dataset.
+
+How this pipeline helps:
+- **Tag the cameras.** List waist-up cameras under `partial_body_cameras:` in the
+  config; every clip from them is flagged `partial_body` in the manifest
+  (visible in `list`/`status`), so you can filter or down-weight them — e.g.
+  train leg motion only from full-body cameras, keep the partial ones for
+  upper-body/hand motion.
+- **Pick a truncation-robust backend.** `smplestx`, `multihmr` (its CUFFS
+  close-up data), and the fusion path degrade more gracefully under upper-body
+  framing than the body-only trio.
+
+The honest state of the art: there is **no** published method dedicated to
+"waist-up framing → full-body motion." The closest breaking work
+(FactorizedHMR's torso-anchor + generative limb completion; DanceHMR's
+close-up-aware augmentation) has no usable code yet — tracked in
+[`RESEARCH_WATCHLIST.md`](RESEARCH_WATCHLIST.md). Until then, tag-and-filter is
+the pragmatic answer.
+
 ### Step 2 (pipeline 2) — the motion model
 
 - Motion-diffusion models are **small** (MDM: tens of millions of params, not
   billions) because joint-rotation sequences are far lower-dimensional than
   pixels/text. Confirm the exact count from the checkpoint you download.
-- **No motion-diffusion scaling law exists** publicly. Don't import Chinchilla's
-  ~20 tokens/param (that's autoregressive text). Use the data:param ratio of the
-  checkpoint you fine-tune as your empirical reference.
+- **Motion-diffusion scaling laws now exist** — don't import Chinchilla's ~20
+  tokens/param (that's autoregressive text). Use the motion-specific work:
+  [ScaMo](https://github.com/shunlinlu/ScaMo_code) (CVPR'25, log test-loss vs
+  compute), Being-M0/MotionLib (ICML'25, data×model), and NVIDIA's Kimodo (2026,
+  700 hrs). All three have public code — real reference points for your
+  data:param budget.
 - **Fine-tune, don't train from scratch** — you have hours of one person: plenty
   to specialize a pretrained motion prior, far too little to learn general human
   motion. ([MDM](https://github.com/GuyTevet/motion-diffusion-model),
@@ -200,6 +228,50 @@ resumable, so a crash 400 GB into the backlog just means re-running the command.
 One clip failing (bad file, no person detected) is recorded and skipped, never
 fatal to the batch.
 
+## Running at scale (parallelism)
+
+Clips are fully independent, so HMR is embarrassingly parallel — the right lever
+for hundreds of hours of footage. Process many at once and pin one clip per GPU:
+
+```bash
+# two 3090s, one clip on each at a time
+python -m videotomocap --config configs/pipeline.yaml hmr --workers 2 --gpus 0,1
+```
+
+- Each worker runs the backend in its own subprocess with `CUDA_VISIBLE_DEVICES`
+  set to its assigned GPU, so the two cards work in parallel. The heavy work is
+  in those subprocesses (GIL released), so a thread pool gives real speedup.
+- The manifest is checkpointed under a lock after every clip, so a parallel run
+  is just as crash-resumable as a sequential one — re-run to pick up where it
+  stopped.
+- `--workers`/`--gpus` (or `workers:`/`gpus:` in the config) default to
+  sequential. Keep `--workers` ≈ number of GPUs (one clip fills a card); more
+  workers than GPUs risks OOM sharing a card.
+- **Beyond one machine:** the manifest is the coordination point. Point several
+  machines at the same footage share with disjoint `--limit`/exclusions, or split
+  the footage tree per machine — each writes its own pose npz, then run `build`
+  once over the merged `work/pose`.
+
+Roughly: GVHMR at ~real-time on a 4090 → on a 3090 pair, ~2× real-time
+throughput, so hundreds of hours become days, not weeks — and it resumes if
+interrupted.
+
+## Code health (pre-commit)
+
+A commit gate keeps files small and shallow (large/deeply-nested files trip up
+smaller LLMs and humans alike). Enable it once per clone:
+
+```bash
+bash scripts/install_hooks.sh     # sets git core.hooksPath -> .githooks
+```
+
+On every commit it runs `scripts/check_code_health.py`, which flags Python files
+over 500 lines, any file over 1 MB, and code nested deeper than 6 blocks (true
+block nesting via `tokenize`, so docstring tables and wrapped call arguments
+don't false-positive). Run it anytime: `python scripts/check_code_health.py --all`.
+Thresholds are env-overridable (`CH_MAX_LINES`, `CH_MAX_BYTES`, `CH_MAX_INDENT`);
+bypass a single commit with `git commit --no-verify`.
+
 ## Layout
 
 ```
@@ -208,7 +280,7 @@ videotomocap/
   ingest.py            scan footage → manifest; exclude/include clips
   pose.py              SmplMotion container; anonymize() = drop shape, keep pose
   dataset.py           aggregate → AMASS-SMPL npz + train/val split + stats
-  pipeline.py          orchestration (scan→hmr→anonymize→build), resumable
+  pipeline.py          orchestration (scan→hmr→anonymize→build), parallel+resumable
   cli.py               `python -m videotomocap ...`
   backends/
     base.py            HMRBackend ABC + rotation/SMPL-family conversion helpers
@@ -218,10 +290,14 @@ videotomocap/
     fusion.py          body + hand net (WiLoR/HaMeR) → SMPL-X with real hands
     noop.py            synthetic backend (no GPU) for tests/dry-runs
 motion_model/          pipeline 2: MDM fine-tuning bridge, config, and docs
-scripts/selftest.py    GPU-free end-to-end test of pipeline 1
-tests/                 unit tests (rotation math, hands/fusion, config/ingest/CLI)
-configs/               example + dropzone configs
+scripts/
+  selftest.py          GPU-free end-to-end test of pipeline 1
+  check_code_health.py commit-time size/indentation gate
+  install_hooks.sh     enable the pre-commit hook
+tests/                 unit tests (rotation math, hands/fusion, config/ingest/CLI/parallel)
+configs/               example + dropzone + fusion configs
 dropzone/              drop your videos here
+RESEARCH_WATCHLIST.md  breaking papers with no usable code yet (what to watch)
 ```
 
 ## Honest scope

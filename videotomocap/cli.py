@@ -102,11 +102,16 @@ def cmd_list(args) -> int:
     return 0
 
 
+def _gpus(args):
+    """Parse --gpus '0,1' into ['0','1']; None means inherit ambient device."""
+    return [g.strip() for g in args.gpus.split(",") if g.strip()] if getattr(args, "gpus", None) else None
+
+
 def cmd_hmr(args) -> int:
     """Run human-mesh recovery on pending/failed clips, then report status."""
     cfg = _cfg(args)
     manifest = _load_or_scan(cfg)
-    pipeline.run_hmr(cfg, manifest, limit=args.limit)
+    pipeline.run_hmr(cfg, manifest, limit=args.limit, workers=args.workers, gpus=_gpus(args))
     cmd_status(args)
     return 0
 
@@ -125,7 +130,7 @@ def cmd_run(args) -> int:
     """Run HMR and build the dataset in one go."""
     cfg = _cfg(args)
     _load_or_scan(cfg)
-    stats = pipeline.run_all(cfg, limit=args.limit)
+    stats = pipeline.run_all(cfg, limit=args.limit, workers=args.workers, gpus=_gpus(args))
     print("Dataset written to", cfg.dataset_dir)
     print(json.dumps(stats.as_dict(), indent=2))
     return 0
@@ -155,12 +160,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     hr = sub.add_parser("hmr", help="run human-mesh recovery on pending clips")
     hr.add_argument("--limit", type=int, help="process at most N clips (smoke test)")
+    hr.add_argument("--workers", type=int, help="process N clips concurrently (default: config)")
+    hr.add_argument("--gpus", help="comma-separated GPU ids to spread across, e.g. 0,1")
     hr.set_defaults(func=cmd_hmr)
 
     sub.add_parser("build", help="aggregate anonymized clips into an AMASS dataset").set_defaults(func=cmd_build)
 
     rn = sub.add_parser("run", help="hmr + build in one go")
     rn.add_argument("--limit", type=int, help="process at most N clips")
+    rn.add_argument("--workers", type=int, help="process N clips concurrently (default: config)")
+    rn.add_argument("--gpus", help="comma-separated GPU ids to spread across, e.g. 0,1")
     rn.set_defaults(func=cmd_run)
     return p
 

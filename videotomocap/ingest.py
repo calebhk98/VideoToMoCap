@@ -44,6 +44,9 @@ class Clip:
     error: Optional[str] = None
     n_frames: Optional[int] = None
     note: Optional[str] = None
+    partial_body: bool = False
+    """Camera only sees part of the body -> out-of-frame joints are HMR-inferred,
+    not observed. Set from ``cfg.partial_body_cameras``; use it to filter/mask."""
 
     def is_processable(self) -> bool:
         """True if HMR should (re)run on this clip: pending, or previously failed."""
@@ -125,17 +128,20 @@ def scan(cfg: PipelineConfig) -> Manifest:
         raise FileNotFoundError(f"footage_root does not exist: {root}")
 
     exts = tuple(e.lower() for e in cfg.video_exts)
+    partial = set(cfg.partial_body_cameras)
     clips: List[Clip] = []
     for path in sorted(root.rglob("*")):
         if not path.is_file() or path.suffix.lower() not in exts:
             continue
         rel = path.relative_to(root)
         rel_str = rel.as_posix()
+        camera = _camera_of(rel, cfg.camera_dir_depth)
         clips.append(
             Clip(
                 clip_id=_clip_id(rel_str),
-                camera=_camera_of(rel, cfg.camera_dir_depth),
+                camera=camera,
                 rel_path=rel_str,
+                partial_body=camera in partial,
             )
         )
     return Manifest(footage_root=str(root), clips=clips)
