@@ -10,7 +10,6 @@ build AMASS dataset -> prepare MDM skeleton.  Asserts the privacy guarantee
 from __future__ import annotations
 
 import json
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -102,21 +101,12 @@ def main() -> int:
         reloaded = Manifest.load(cfg.manifest_path)
         check(reloaded.counts().get(ingest.POSE_DONE) == 5, "state survives round-trip to disk")
 
-        print("7) prepare MDM data skeleton")
-        out = tmp / "mdm_data"
-        rc = subprocess.run(
-            [sys.executable, str(Path(__file__).resolve().parents[1] / "motion_model" / "prepare_mdm_data.py"),
-             "--dataset", str(cfg.dataset_dir), "--out", str(out)],
-            capture_output=True, text=True,
-        )
-        check(rc.returncode == 0, f"prepare_mdm_data ran (stderr: {rc.stderr[-200:]})")
-        check((out / "train.txt").exists(), "MDM train split written")
-        check(len(list((out / "texts").glob("*.txt"))) == 5, "one caption scaffold per clip")
-
-        print("8) Pipeline 2: prepare + train with the synthetic 'noop' method")
+        print("7) Pipeline 2: prepare + train with the synthetic 'noop' method")
         mm_cfg = MotionModelConfig(dataset_dir=cfg.dataset_dir, work_root=tmp / "mm", method="noop")
         trainer = get_trainer(mm_cfg)
-        trainer.prepare()
+        prepared = trainer.prepare()
+        check((prepared / "train.txt").exists(), "HumanML3D split written")
+        check(len(list((prepared / "texts").glob("*.txt"))) == 5, "one caption per clip")
         save = trainer.train()
         check((save / "model_final.pt").exists(), "motion-model checkpoint written")
         mm_manifest = json.loads((save / "train_manifest.json").read_text())

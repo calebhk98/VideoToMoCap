@@ -4,11 +4,13 @@ The original small (~35M) motion-diffusion model. Kept because the personalizati
 ecosystem (priorMDM, LoRA-MDM, CLoSD) is built on it. Two modes:
 
 - ``personalization: full`` -> full fine-tune from the pretrained HumanML3D prior.
-  Vanilla ``train_mdm`` has no working resume, so this uses priorMDM's
-  ``train_mdm_motion_control`` mechanics; set ``repo`` to a priorMDM checkout.
+  ``train.train_mdm --resume_checkpoint <ckpt>`` is a working full-fine-tune path
+  in both MDM and priorMDM (training_loop loads the checkpoint's weights). Set
+  ``repo`` to an MDM or priorMDM checkout.
 - ``personalization: lora`` -> LoRA-MDM adapters (https://github.com/haimsaw/LoRA-MDM),
   which keep the text vocabulary and shift only style -- the lighter, safer choice
-  for hours of one person. Set ``repo`` to the LoRA-MDM checkout.
+  for hours of one person. Uses ``--lora_finetune --starting_checkpoint``; set
+  ``repo`` to the LoRA-MDM checkout.
 """
 
 from __future__ import annotations
@@ -44,23 +46,24 @@ class MDMTrainer(MotionTrainer):
     def train(self) -> Path:
         repo = self._require_repo()
         ckpt = self._require(self.cfg.resume_checkpoint, "resume_checkpoint (pretrained HumanML3D prior)")
+        self._stage_humanml3d(repo)   # MDM reads ./dataset/HumanML3D; --data_dir is dead for humanml
         save = self.cfg.checkpoint_dir
         save.mkdir(parents=True, exist_ok=True)
 
-        script = "train.train_mdm" if self.cfg.personalization == "lora" else "train.train_mdm_motion_control"
+        # train.train_mdm is the entry for both; LoRA seeds a *new* fine-tune with
+        # --starting_checkpoint + --lora_finetune, a full fine-tune *resumes* the prior.
         cmd = [
-            self.cfg.python, "-m", script,
+            self.cfg.trainer_python, "-m", "train.train_mdm",
             "--save_dir", str(save),
             "--dataset", "humanml",
-            "--data_dir", str(self.cfg.prepared_dir),
-            "--resume_checkpoint", str(ckpt),
             "--num_steps", str(self.cfg.num_steps),
             "--batch_size", str(self.cfg.batch_size),
             "--lr", str(self.cfg.lr),
-            "--guidance_param", str(self.cfg.guidance_param),
         ]
-        if self.cfg.conditioning == "none":
-            cmd.append("--unconstrained")
+        if self.cfg.personalization == "lora":
+            cmd += ["--lora_finetune", "--starting_checkpoint", str(ckpt)]
+        else:
+            cmd += ["--resume_checkpoint", str(ckpt)]
         cmd.extend(self.cfg.extra_args)
         self._run_cmd(cmd, cwd=repo)
         return save

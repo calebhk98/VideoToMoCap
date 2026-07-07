@@ -17,6 +17,18 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 
+# ProtoMotions ships one experiment file per algorithm; masked_mimic's is a
+# transformer, the others an MLP. Single source of truth: the config validates
+# `algorithm` against these keys and the ProtoMotions trainer maps them to
+# --experiment-path, so the two never drift.
+PROTOMOTIONS_EXPERIMENTS = {
+    "mimic": "examples/experiments/mimic/mlp.py",
+    "amp": "examples/experiments/amp/mlp.py",
+    "ase": "examples/experiments/ase/mlp.py",
+    "masked_mimic": "examples/experiments/masked_mimic/transformer.py",
+}
+
+
 def _one_of(value, allowed: set, field_name: str) -> str:
     """Validate a string-enum config field, failing loud with the allowed set."""
     v = str(value).lower()
@@ -42,8 +54,9 @@ class MotionModelConfig:
     work_root: Path = Path("work/motion_model")
     """Where prepared training data and checkpoints for THIS method are written."""
 
-    python: str = "python"
-    """Interpreter used to launch the upstream trainer (usually a dedicated env)."""
+    trainer_python: str = "python"
+    """Interpreter used to launch the upstream trainer (usually a dedicated env).
+    Named like Pipeline 1's ``backend_python`` for parity."""
 
     cuda_device: Optional[str] = None
     """Exported as CUDA_VISIBLE_DEVICES to the training subprocess. None = inherit."""
@@ -115,7 +128,7 @@ class MotionModelConfig:
         self.conditioning = _one_of(self.conditioning, {"none", "text", "action"}, "conditioning")
         self.personalization = _one_of(self.personalization, {"full", "lora"}, "personalization")
         self.simulator = _one_of(self.simulator, {"isaaclab", "isaacgym", "mujoco", "newton"}, "simulator")
-        self.algorithm = _one_of(self.algorithm, {"mimic", "amp", "ase", "masked_mimic"}, "algorithm")
+        self.algorithm = _one_of(self.algorithm, set(PROTOMOTIONS_EXPERIMENTS), "algorithm")
 
     # Convenience paths -------------------------------------------------
     @property

@@ -89,46 +89,33 @@ conversion is: SMPL params → 22 joint positions (SMPL forward kinematics) →
 HumanML3D features (`motion_representation`). It needs the SMPL body model
 (register at https://smpl.is.tue.mpg.de) and the HumanML3D repo.
 
-```bash
-python motion_model/prepare_mdm_data.py \
-    --dataset work/dataset \
-    --humanml3d /opt/HumanML3D \
-    --smpl-model /opt/body_models/smpl \
-    --out work/mdm_data
-```
-
-`prepare_mdm_data.py` handles the parts that don't need those external assets
-(indexing, splits, text-annotation scaffolding) and invokes the HumanML3D
-feature extractor for the rest. Read its header for exactly which step needs
-what.
+`python -m motion_model prepare` (with a generator method + `humanml3d_repo` +
+`smpl_model` set in the config) lays out the parts that need no external assets
+(indexing, splits, caption scaffolding) and prints the exact HumanML3D
+feature-extraction hand-off for the rest — `raw_pose_processing` →
+`motion_representation` → `cal_mean_variance` (the last makes `Mean.npy`/`Std.npy`
+over *your* corpus). It needs the SMPL body model (register at
+https://smpl.is.tue.mpg.de) and the HumanML3D repo.
 
 ### 2. Fine-tune
 
-```bash
-python -m train.train_mdm \
-    --save_dir save/mymotion \
-    --dataset humanml \
-    --data_dir work/mdm_data \
-    --resume_checkpoint save/humanml_trans_enc_512/model000475000.pt \
-    --num_steps 80000 --batch_size 64
-```
-
-See `finetune_mdm.yaml` here for the recommended starting hyperparameters
-(matches the priorMDM control-task recipe: 80k steps, batch 64).
+`python -m motion_model train` shells out to the configured method's trainer.
+The trainer stages your prepared data where the upstream loader expects it
+(`<repo>/dataset/HumanML3D`) and builds the right command — MoMask's two-stage
+RVQ+transformer recipe, MDM's `--resume_checkpoint` full fine-tune, or LoRA-MDM's
+`--lora_finetune --starting_checkpoint`. Upstream-specific hyperparameters
+(diffusion steps, noise schedule, ...) go through `extra_args` in the config.
 
 ### 3. Conditioning choice
 
-Your footage has no text labels. Options, cheapest first:
+Your footage has no text labels. Options, cheapest first (set `conditioning:` in
+the config):
 
-1. **Unconditional fine-tune** — drop text, learn "motion that looks like you."
-   Simplest; pair with (B) to drive it.
-2. **Action labels** — cluster clips (or hand-label a few) into coarse actions
-   (walk, sit, cook, ...) and condition on the label.
-3. **Auto-captioning** — run a video captioner over each clip to get text, then
-   train the standard text-conditioned MDM. Most work, most controllable.
-
-`prepare_mdm_data.py` writes an empty caption per clip by default (option 1);
-fill `texts/<clip_id>.txt` to move toward option 2/3.
+1. **`none`** — learn "motion that looks like you." Simplest; pair with (B) to drive it.
+2. **`action`** — reuse Pipeline 1's unsupervised `action_cluster` ids as coarse
+   labels (walk, sit, cook, ...); `prepare` writes them as captions automatically.
+3. **`text`** — run a video captioner over each clip, fill `texts/<clip_id>.txt`,
+   and train the standard text-conditioned model. Most work, most controllable.
 
 ## Hands
 

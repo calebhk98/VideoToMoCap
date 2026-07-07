@@ -44,21 +44,25 @@ class CLoSDTrainer(MotionTrainer):
         ~50 GB Isaac-Gym step -- run it from the repo once DiP has converged.
         """
         repo = self._require_repo()
+        self._stage_humanml3d(repo)   # CLoSD forks MDM, which reads ./dataset/HumanML3D
         save = self.cfg.checkpoint_dir
         save.mkdir(parents=True, exist_ok=True)
 
+        # A bare command trains a vanilla MDM-humanml model; the actual DiP recipe
+        # (autoregressive, 10 diffusion steps, BERT text encoder, ...) is added via
+        # extra_args -- see the CLoSD README's "Train your own DiP" command.
         cmd = [
-            self.cfg.python, "-m", "closd.diffusion_planner.train.train_mdm",
+            self.cfg.trainer_python, "-m", "closd.diffusion_planner.train.train_mdm",
             "--save_dir", str(save),
             "--dataset", "humanml",
-            "--data_dir", str(self.cfg.prepared_dir),
             "--num_steps", str(self.cfg.num_steps),
             "--batch_size", str(self.cfg.batch_size),
             "--lr", str(self.cfg.lr),
-            *self.cfg.extra_args,
         ]
         if self.cfg.resume_checkpoint is not None:
-            cmd.extend(["--resume_checkpoint", str(self.cfg.resume_checkpoint)])
+            ckpt = self._require(self.cfg.resume_checkpoint, "resume_checkpoint")
+            cmd.extend(["--resume_checkpoint", str(ckpt)])
+        cmd.extend(self.cfg.extra_args)
         self._run_cmd(cmd, cwd=repo)
         print(
             "  DiP planner training launched. Then close the loop from the repo:\n"

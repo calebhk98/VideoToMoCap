@@ -63,7 +63,7 @@ class MotionTrainer(ABC):
             subprocess.run([str(c) for c in cmd], cwd=str(cwd) if cwd else None, check=True, env=env)
         except FileNotFoundError as exc:
             raise TrainerError(
-                f"Could not launch {self.name}: {exc}. Is `{self.cfg.python}` on PATH "
+                f"Could not launch {self.name}: {exc}. Is `{self.cfg.trainer_python}` on PATH "
                 f"and `repo` set to the cloned upstream checkout?"
             ) from exc
         except subprocess.CalledProcessError as exc:
@@ -93,3 +93,31 @@ class MotionTrainer(ABC):
         if path is None or not Path(path).exists():
             raise TrainerError(f"{self.name} needs {what} (got {path!r}). Set it in the config.")
         return Path(path)
+
+    def _stage_humanml3d(self, repo: Path) -> Path:
+        """Symlink the prepared data to ``<repo>/dataset/HumanML3D`` where the loader looks.
+
+        MoMask and the MDM family hardcode the HumanML3D dataset path inside their
+        own config loading -- neither wires a --data_root/--data_dir flag through for
+        the humanml/t2m path -- so the prepared features have to physically sit at
+        ``<repo>/dataset/HumanML3D``. Non-destructive: if a *different* dataset is
+        already there (e.g. the real HumanML3D used to pretrain the prior), refuse
+        rather than clobber it, and tell the user how to resolve it.
+        """
+        src = self.cfg.prepared_dir.resolve()
+        dst = Path(repo) / "dataset" / "HumanML3D"
+        if dst.is_symlink():
+            if Path(os.readlink(dst)) == src:
+                return dst
+            dst.unlink()
+        elif dst.exists():
+            raise TrainerError(
+                f"{dst} already exists and is not our prepared data. Move/remove it, or "
+                f"symlink it to {src} yourself, so the trainer reads your motion."
+            )
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            dst.symlink_to(src, target_is_directory=True)
+        except OSError as exc:  # e.g. Windows without privilege
+            raise TrainerError(f"could not link {dst} -> {src} ({exc}); copy the data there manually.") from exc
+        return dst

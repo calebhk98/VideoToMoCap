@@ -21,6 +21,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
+from . import data
 from .config import MotionModelConfig, load_config
 from .trainers import available_methods, get_trainer
 
@@ -72,12 +73,10 @@ def cmd_info(args) -> int:
     print(f"prepared:    {cfg.prepared_dir}")
     print(f"checkpoints: {cfg.checkpoint_dir}")
     print(f"repo:        {cfg.repo}")
-    warn = None
     if trainer.feature_format == "humanml3d_263":
-        from . import data
         warn = data.fps_warning(cfg.target_fps)
-    if warn:
-        print(f"WARNING: {warn}")
+        if warn:
+            print(f"WARNING: {warn}")
     return 0
 
 

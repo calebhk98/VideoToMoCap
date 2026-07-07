@@ -89,14 +89,12 @@ models (different accounts, easy to conflate):
 
 ### 4. Convert AMASS -> HumanML3D 263-dim features
 ```bash
-python motion_model/prepare_mdm_data.py \
-    --dataset work/dataset --out work/mdm_data \
-    --humanml3d /opt/HumanML3D --smpl-model /opt/body_models/smpl
+python -m motion_model --config configs/motion_model.yaml prepare
 ```
-Then run HumanML3D's `raw_pose_processing` -> `motion_representation` ->
-**`cal_mean_variance`** (the last one is easy to forget — it makes `Mean.npy` /
-`Std.npy` over YOUR corpus; do not reuse the shipped HumanML3D stats).
-`prepare_mdm_data.py` prints the exact hand-off, including the gotchas.
+(with `humanml3d_repo` + `smpl_model` set in the config). Then run HumanML3D's
+`raw_pose_processing` -> `motion_representation` -> **`cal_mean_variance`** (the
+last one is easy to forget — it makes `Mean.npy` / `Std.npy` over YOUR corpus; do
+not reuse the shipped HumanML3D stats). `prepare` prints the exact hand-off.
 
 ### 5. Fine-tune with LoRA-MDM (text-conditioned)
 Fill `texts/<clip_id>.txt` with real captions first — start from `cluster.py`
@@ -138,7 +136,7 @@ collapse, then the full run.
   clips, which HumanML3D's floor/up-axis normalization would silently corrupt.
   (`videotomocap/dataset.py`)
 - **Empty captions crash MDM's loader:** the bridge now writes a loader-valid
-  placeholder caption, not `""`. (`motion_model/prepare_mdm_data.py`)
+  placeholder caption, not `""`. (`motion_model/data.py`)
 - **Mean/Std + gender + quality-filter gotchas** are now printed in the bridge's
   feature-extraction hand-off.
 

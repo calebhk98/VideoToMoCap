@@ -20,7 +20,7 @@ method: momask
 # --- Working dirs ---------------------------------------------------------
 dataset_dir: work/dataset          # Pipeline 1 output (amass/*.npz + index.json)
 work_root: work/motion_model       # prepared data + checkpoints land here
-python: python                     # interpreter for the upstream trainer's env
+trainer_python: python             # interpreter for the upstream trainer's env
 # cuda_device: "0"                 # pin CUDA_VISIBLE_DEVICES for the subprocess
 
 # --- Upstream repos + assets (only the selected method's are needed) ------
