@@ -152,6 +152,17 @@ class PipelineConfig:
     """Mean per-frame pose change below this = a near-static clip (low training
     value); flagged as info, not auto-excluded."""
 
+    # --- Automatic occlusion tagging (from motion) -----------------------
+    auto_occlusion: str = "off"
+    """Automatically mark joints that never move across a clip as unreliable (a
+    proxy for out-of-frame joints, which HMR freezes) -> they get masked out via
+    joint_valid. 'off' or 'flag'. Complements manual ``camera_occlusions``."""
+
+    # --- Unsupervised action pseudo-labels -------------------------------
+    cluster_actions: int = 0
+    """If > 0, k-means the clips into this many motion clusters and tag each with
+    an ``action_cluster`` id (for conditioning the motion model). 0 = off."""
+
     # --- Dataset ---------------------------------------------------------
     target_fps: float = 30.0
     """Frame rate every clip is resampled to before anonymization/export, so the

@@ -92,6 +92,7 @@ def build_dataset(
     val_fraction: float = 0.05,
     min_frames: int = 30,
     seed: int = 0,
+    extra_per_clip: Dict[str, Dict] = None,
 ) -> DatasetStats:
     """Read anonymized pose clips and write an AMASS-format dataset + split.
 
@@ -117,6 +118,8 @@ def build_dataset(
         if motion.joint_valid is not None and not motion.joint_valid.all():
             # surface which joints are HMR-inferred so you can filter this clip
             entry["unreliable_joints"] = [int(j) for j in np.where(~motion.joint_valid)[0]]
+        if extra_per_clip and clip_id in extra_per_clip:
+            entry.update(extra_per_clip[clip_id])  # e.g. action_cluster for conditioning
         entries.append(entry)
         total_frames += motion.n_frames
         fps_seen = motion.fps

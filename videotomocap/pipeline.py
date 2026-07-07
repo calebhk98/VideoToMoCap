@@ -69,19 +69,27 @@ def _compute_and_save(cfg: PipelineConfig, clip: Clip) -> int:
         from .refine import refine_motion  # optional post-processing; keep import lazy
         motion = refine_motion(motion)
     anon = anonymize(motion, drop_shape=cfg.drop_shape, keep_translation=cfg.keep_translation)
-    anon.joint_valid = _joint_valid_mask(clip)  # label out-of-frame joints (if any)
+    anon.joint_valid = _joint_valid_mask(cfg, clip, anon)  # label unreliable joints (if any)
 
     cfg.pose_dir.mkdir(parents=True, exist_ok=True)
     anon.save_npz(_pose_path(cfg, clip))
     return anon.n_frames
 
 
-def _joint_valid_mask(clip: Clip):
-    """(24,) bool mask, False where the camera can't see the joint. None if all seen."""
-    if not clip.unreliable_joints:
+def _joint_valid_mask(cfg: PipelineConfig, clip: Clip, motion):
+    """(24,) bool mask, False for unreliable joints. None if all reliable.
+
+    Combines the camera occlusion tags (``clip.unreliable_joints``) with, when
+    ``auto_occlusion`` is on, joints detected as frozen in this clip's motion.
+    """
+    unreliable = set(clip.unreliable_joints)
+    if cfg.auto_occlusion == "flag":
+        from .regions import infer_static_joints
+        unreliable.update(infer_static_joints(motion))
+    if not unreliable:
         return None
     mask = np.ones(SMPL_NJOINTS, dtype=bool)
-    mask[clip.unreliable_joints] = False
+    mask[sorted(unreliable)] = False
     return mask
 
 
@@ -299,22 +307,48 @@ def assess_quality_pass(cfg: PipelineConfig, manifest: Manifest) -> dict:
     return {"flagged": flagged, "hard": hard}
 
 
+def cluster_actions_pass(cfg: PipelineConfig, manifest: Manifest) -> int:
+    """Group clips into ``cfg.cluster_actions`` motion clusters (pseudo-labels).
+
+    Sets ``action_cluster`` on each POSE_DONE clip. No-op when the count is <= 0.
+    Returns the number of clusters actually assigned.
+    """
+    if cfg.cluster_actions <= 0:
+        return 0
+    from .cluster import clip_features, cluster_clips
+
+    done = manifest.by_status(ingest.POSE_DONE)
+    feats = {c.clip_id: clip_features(SmplMotion.load_npz(_pose_path(cfg, c)))
+             for c in done if _pose_path(cfg, c).exists()}
+    labels = cluster_clips(feats, cfg.cluster_actions)
+    for clip in done:
+        clip.action_cluster = labels.get(clip.clip_id, -1)
+    manifest.save(cfg.manifest_path)
+    n = len(set(labels.values()))
+    print(f"cluster_actions={cfg.cluster_actions}: {len(labels)} clips into {n} clusters")
+    return n
+
+
 def build(cfg: PipelineConfig, manifest: Manifest):
     """Run the analysis passes, then aggregate anonymized clips into the dataset."""
     detect_mirroring(cfg, manifest)      # no-op unless auto_mirror is set
     assess_quality_pass(cfg, manifest)   # no-op unless quality_filter is set
+    cluster_actions_pass(cfg, manifest)  # no-op unless cluster_actions > 0
 
     done = manifest.by_status(ingest.POSE_DONE)
     if cfg.quality_filter == "exclude":
         done = [c for c in done if not c.low_quality]  # drop hard-failing clips
     pose_paths = [_pose_path(cfg, c) for c in done]
     pose_paths = [p for p in pose_paths if p.exists()]
+    # carry each clip's action cluster into the dataset index for MDM conditioning
+    extra = {c.clip_id: {"action_cluster": c.action_cluster} for c in done if c.action_cluster >= 0}
     stats = build_dataset(
         pose_paths,
         cfg.dataset_dir,
         gender=cfg.gender,
         val_fraction=cfg.val_fraction,
         min_frames=cfg.min_clip_frames,
+        extra_per_clip=extra,
     )
     return stats
 

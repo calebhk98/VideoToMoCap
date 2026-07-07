@@ -19,6 +19,8 @@ from __future__ import annotations
 
 from typing import Dict, Iterable, List
 
+import numpy as np
+
 # Region name -> the SMPL joint indices that become unreliable if that region is
 # out of frame. Composable: 'legs' = both legs; 'left_arm' just the left chain.
 BODY_REGIONS: Dict[str, List[int]] = {
@@ -49,3 +51,24 @@ def joints_for_regions(regions: Iterable[str]) -> List[int]:
             raise ValueError(f"Unknown body region {name!r}; choose from {sorted(BODY_REGIONS)}")
         out.update(BODY_REGIONS[key])
     return sorted(out)
+
+
+def infer_static_joints(motion, *, energy_threshold: float = 1e-4, min_active: int = 4) -> List[int]:
+    """Automatically flag joints that never move across a clip (auto-occlusion).
+
+    When a joint is out of frame, HMR can't observe it and typically freezes it at
+    a default pose -- so a joint with essentially zero motion over the whole clip
+    is a good proxy for occluded/out-of-frame, *provided the body is otherwise
+    active* (if nothing moves it's a still clip, not occlusion, so we bail). This
+    also catches genuinely-still limbs, which is fine for the intended use:
+    masking non-informative joints out of training. Pure motion signal -- no
+    camera intrinsics or body model needed.
+    """
+    poses = np.asarray(motion.poses)
+    if poses.shape[0] < 3:
+        return []
+    per_joint = poses.reshape(poses.shape[0], N_SMPL_JOINTS, 3)
+    energy = (np.diff(per_joint, axis=0) ** 2).sum(axis=(0, 2))  # (24,) total motion per joint
+    if int((energy >= energy_threshold).sum()) < min_active:
+        return []  # whole body is still -> a static clip, not an occlusion signal
+    return [int(j) for j in range(N_SMPL_JOINTS) if energy[j] < energy_threshold]

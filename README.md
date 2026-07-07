@@ -448,6 +448,22 @@ Findings, split into hard (physically impossible → drop candidates) and soft
 It runs automatically inside `run`/`build`. This is the cheap, safe win among the
 auto-tags — no heavy deps, and it directly cleans the training data.
 
+### Auto-occlusion (`auto_occlusion`) and action clusters (`cluster_actions`)
+
+Two more motion-derived tags, no per-video work:
+
+- **`auto_occlusion: flag`** — marks joints that never move across a clip as
+  unreliable (masked via `joint_valid`, same as manual `camera_occlusions`).
+  Since HMR freezes out-of-frame joints at a default, a frozen joint is a decent
+  proxy for occluded — with the honest caveat that it also flags genuinely-still
+  limbs, which is fine for the purpose (masking non-informative joints out of
+  training). Complements `camera_occlusions`; the two are unioned.
+- **`cluster_actions: <k>`** — k-means the clips into `k` motion clusters and
+  tags each with an `action_cluster` id (surfaced in the dataset `index.json`).
+  Your footage has no action labels; this gives the motion model a free
+  conditioning signal ("cluster 3" ≈ walking, etc.). It's clustering, not
+  recognition — coarse buckets you can name later, not ground-truth actions.
+
 ## Layout
 
 ```
@@ -462,6 +478,7 @@ videotomocap/
   refine.py            optional post-proc: temporal de-jitter + anti-drift
   mirror.py            auto left/right-mirror detection + correction
   quality.py           auto clip-quality assessment (teleports/jumps/NaN/static)
+  cluster.py           unsupervised motion clusters (action pseudo-labels)
   cli.py               `python -m videotomocap ...`
   backends/
     base.py            HMRBackend ABC + rotation/SMPL-family conversion helpers

@@ -37,6 +37,7 @@ videotomocap/
                   SMPL mirror transform. auto_mirror = off|flag|correct.
   quality.py      Per-clip plausibility from the motion (teleport/pose-jump/NaN/
                   static). quality_filter = off|flag|exclude.
+  cluster.py      Unsupervised motion clusters -> action_cluster pseudo-labels.
   cli.py          `python -m videotomocap <cmd>`. Thin wrapper over the above.
   backends/
     base.py         HMRBackend ABC + rotation/SMPL conversion helpers (pure NumPy).

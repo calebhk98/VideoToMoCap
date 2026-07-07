@@ -61,6 +61,14 @@ quality_filter: flag      # off | flag (annotate) | exclude (drop hard failures)
 # quality_max_speed_ms: 12.0     # root speed above this = tracking teleport
 # quality_max_joint_step: 1.5    # per-frame joint jump (rad) above this = glitch
 
+# Auto-mark joints that never move in a clip as unreliable (proxy for out-of-frame,
+# masked via joint_valid). Complements the manual camera_occlusions above.
+auto_occlusion: off       # off | flag
+
+# Unsupervised motion clusters -> per-clip action_cluster pseudo-label (for the
+# motion model to condition on). 0 = off.
+cluster_actions: 0        # e.g. 8
+
 # --- Dataset ---------------------------------------------------------------
 target_fps: 30.0
 min_clip_frames: 30       # drop motion snippets shorter than 1 s
