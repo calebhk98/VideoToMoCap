@@ -27,10 +27,12 @@ services:
       - ./work:/workspace/work             # manifest, dataset, checkpoints
       - ./configs:/workspace/configs       # editable configs
       - ./models:/opt/models               # gated SMPL models + cached weights (NEVER in the image)
+      - ./models/.cache:/root/.cache       # CLIP / torch-hub / misc runtime caches (persist across runs)
       - ./repos:/opt/repos                 # cloned upstream repos (GVHMR/MoMask/...)
     environment:
       - VIDEO_CONFIG=configs/dropzone.yaml
       - MODEL_CONFIG=configs/motion_model.yaml
-      # Offline after setup: uncomment to hard-fail on any accidental network use.
+      # After `setup`, run stages offline: uncomment these AND pass `--network none`
+      # (e.g. `docker compose run --rm --network none pipeline all`) for a hard guarantee.
       # - HF_HUB_OFFLINE=1
       # - TRANSFORMERS_OFFLINE=1

@@ -69,7 +69,9 @@ echo "== core env =="
 # --- HMR backend (video -> SMPL) ------------------------------------------
 case "$BACKEND" in
   ""|none) : ;;
-  gvhmr) clone gvhmr https://github.com/zju3dv/GVHMR; make_env gvhmr gvhmr; fetch_weights gvhmr ;;
+  gvhmr) clone gvhmr https://github.com/zju3dv/GVHMR; make_env gvhmr gvhmr; fetch_weights gvhmr
+         echo "  GVHMR weights are a Google-Drive bundle (~5.6 GB): follow $REPOS/gvhmr/docs/INSTALL.md,"
+         echo "  or fetch the community mirror once: huggingface-cli download camenduru/GVHMR --local-dir $MODELS/gvhmr" ;;
   wham)  clone wham  https://github.com/yohanshin/WHAM;  make_env wham  wham;  fetch_weights wham ;;
   tram)  clone tram  https://github.com/yufu-wang/tram;  make_env tram  tram;  fetch_weights tram ;;
   *) echo "unknown backend: $BACKEND" >&2; exit 2 ;;
@@ -88,7 +90,9 @@ case "$METHOD" in
   ""|noop) : ;;
   momask) clone momask https://github.com/EricGuo5513/momask-codes; make_env momask momask; fetch_weights momask; setup_features momask ;;
   mdm)    clone mdm https://github.com/GuyTevet/motion-diffusion-model; make_env mdm mdm; fetch_weights mdm; setup_features mdm ;;
-  protomotions) clone protomotions https://github.com/NVlabs/ProtoMotions; make_env protomotions protomotions; fetch_weights protomotions ;;
+  protomotions) clone protomotions https://github.com/NVlabs/ProtoMotions; make_env protomotions protomotions; fetch_weights protomotions
+                echo "  pulling ProtoMotions pretrained trackers (git-lfs, in-repo) ..."
+                ( cd "$REPOS/protomotions" && git lfs pull ) || echo "  (run 'git lfs pull' in $REPOS/protomotions by hand)" ;;
   closd)  clone closd https://github.com/GuyTevet/CLoSD; make_env closd closd; fetch_weights closd; setup_features closd ;;
   *) echo "unknown method: $METHOD" >&2; exit 2 ;;
 esac

@@ -259,6 +259,10 @@ python scripts/run_pipeline.py \
     --video-config configs/dropzone.yaml --model-config configs/motion_model.yaml
 ```
 
+Prefer an isolated, offline container (no host pollution)? See `docker/README.md`:
+`docker compose run --rm pipeline setup ...` once, then `docker compose run --rm
+--network none pipeline all`.
+
 Need a one-off override? Any config field that matters at the CLI has a flag
 (`--limit 5` for a smoke test, `--gpus 0`, `--workers-per-gpu 2`, `--config other.yaml`,
 `--footage-root ...`) — but you never *have* to use them. Extra ad-hoc exclusions

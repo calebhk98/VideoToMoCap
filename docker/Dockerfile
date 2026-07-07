@@ -11,13 +11,16 @@
 #    image only carries the light `core` env (this repo) -- proven at build time.
 #
 # CUDA base so GPU stages work on a GPU host; the core (GPU-free) stages still run
-# on a CPU-only host. Confirm the tag matches your driver (nvidia-smi).
-FROM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04
+# on a CPU-only host. This is the exact tag ProtoMotions' own Dockerfile uses and
+# it satisfies GVHMR's cu121 requirement; -devel is needed to build DPVO/IsaacGym
+# extensions. Ubuntu 20.04 keeps legacy IsaacGym Preview 4 happy. Confirm your
+# host driver is >= 525.60.13 (nvidia-smi) for cu121.
+FROM nvidia/cuda:12.1.0-devel-ubuntu20.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        git wget bzip2 ca-certificates ffmpeg build-essential \
-    && rm -rf /var/lib/apt/lists/*
+        git git-lfs wget bzip2 ca-certificates ffmpeg build-essential \
+    && git lfs install && rm -rf /var/lib/apt/lists/*
 
 # micromamba: a tiny conda that makes per-stage envs cheap and reproducible.
 ENV MAMBA_ROOT_PREFIX=/opt/conda
@@ -36,10 +39,13 @@ RUN micromamba create -y -n core -c conda-forge python=3.11 pip \
     && micromamba run -n core python -m pytest tests/ -q
 
 # Offline switches: once weights/models are cached in the mounted volumes, every
-# stage runs with no network (the setup step is the only thing that reaches out).
-ENV HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
-    HF_HOME=/opt/models/hf TORCH_HOME=/opt/models/torch \
-    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+# stage runs with no network. Caches point INTO the mounted /opt/models volume so
+# the one-time online setup persists (CLIP, DistilBERT, torch hub). For a hard
+# guarantee, run the pipeline stages with `--network none` after setup.
+ENV HF_HOME=/opt/models/hf TORCH_HOME=/opt/models/torch \
+    WANDB_MODE=offline PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+# HF_HUB_OFFLINE/TRANSFORMERS_OFFLINE are set at RUN time (compose), not build,
+# so the setup step can still populate the caches.
 
 ENTRYPOINT ["/workspace/docker/entrypoint.sh"]
 CMD ["help"]
