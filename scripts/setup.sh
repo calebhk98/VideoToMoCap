@@ -28,6 +28,9 @@ mkdir -p "$REPOS" "$MODELS"
 have() { command -v "$1" >/dev/null 2>&1; }
 MAMBA="micromamba"; have "$MAMBA" || MAMBA="conda"
 
+# Downloaders for scriptable (non-gated) weights live in the light core env.
+"$MAMBA" run -n core pip install -q gdown "huggingface_hub[cli]" 2>/dev/null || true
+
 clone() {  # clone <dir> <url>   (idempotent)
   local dir="$REPOS/$1"
   [ -d "$dir/.git" ] && { echo "  have $1"; return; }
@@ -57,6 +60,22 @@ fetch_weights() {  # run the repo's OWN download scripts (non-gated weights)
   done
 }
 
+fetch_gvhmr_weights() {  # ~5.6 GB, non-gated: HF community mirror, else the official Drive folder
+  local dst="$REPOS/gvhmr/inputs/checkpoints"
+  [ -d "$dst" ] && [ -n "$(ls -A "$dst" 2>/dev/null)" ] && { echo "  have GVHMR weights"; return; }
+  mkdir -p "$dst"
+  echo "  fetching GVHMR weights (~5.6 GB, best-effort) ..."
+  if "$MAMBA" run -n core huggingface-cli download camenduru/GVHMR --local-dir "$dst" >/dev/null 2>&1; then
+    echo "  ok: GVHMR weights from HF mirror -> $dst"
+  elif "$MAMBA" run -n core gdown --folder \
+        https://drive.google.com/drive/folders/1eebJ13FUEXrKBawHpJroW0sNSxLjh9xD -O "$dst" >/dev/null 2>&1; then
+    echo "  ok: GVHMR weights from Google Drive -> $dst"
+  else
+    echo "  could not auto-fetch GVHMR weights; follow $REPOS/gvhmr/docs/INSTALL.md"
+  fi
+  echo "  (confirm layout is inputs/checkpoints/{gvhmr,hmr2,vitpose,yolo,dpvo}/ per INSTALL.md)"
+}
+
 check_gated() {  # warn (do not fail) if a gated model file is absent
   local rel="$1" what="$2"
   [ -e "$MODELS/$rel" ] && { echo "  ok: $what"; return; }
@@ -69,9 +88,7 @@ echo "== core env =="
 # --- HMR backend (video -> SMPL) ------------------------------------------
 case "$BACKEND" in
   ""|none) : ;;
-  gvhmr) clone gvhmr https://github.com/zju3dv/GVHMR; make_env gvhmr gvhmr; fetch_weights gvhmr
-         echo "  GVHMR weights are a Google-Drive bundle (~5.6 GB): follow $REPOS/gvhmr/docs/INSTALL.md,"
-         echo "  or fetch the community mirror once: huggingface-cli download camenduru/GVHMR --local-dir $MODELS/gvhmr" ;;
+  gvhmr) clone gvhmr https://github.com/zju3dv/GVHMR; make_env gvhmr gvhmr; fetch_weights gvhmr; fetch_gvhmr_weights ;;
   wham)  clone wham  https://github.com/yohanshin/WHAM;  make_env wham  wham;  fetch_weights wham ;;
   tram)  clone tram  https://github.com/yufu-wang/tram;  make_env tram  tram;  fetch_weights tram ;;
   *) echo "unknown backend: $BACKEND" >&2; exit 2 ;;
