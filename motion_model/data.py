@@ -97,37 +97,35 @@ def fps_warning(target_fps: int) -> Optional[str]:
 
 
 def humanml3d_handoff(cfg, out: Path) -> str:
-    """The exact, asset-gated feature-extraction hand-off text for generator methods."""
-    hml = cfg.humanml3d_repo
-    smpl = cfg.smpl_model
-    if hml is None or smpl is None:
-        return (
-            "\nFeature extraction is gated on external assets. To finish it:\n"
-            "  set humanml3d_repo (EricGuo5513/HumanML3D checkout) and smpl_model\n"
-            "  (registration-gated SMPL+H / DMPL body models) in the config, then\n"
-            "  re-run `prepare`. The 263-d features cannot be produced without them.\n"
-        )
+    """Feature-extraction status: what's set up vs what one-time asset is still missing."""
+    have_tmr = bool(cfg.tmr_repo and Path(cfg.tmr_repo).exists())
+    have_smpl = bool(cfg.smpl_model and Path(cfg.smpl_model).exists())
+    if have_tmr and have_smpl:
+        return f"\n263-d features extracted offline into {out/'new_joint_vecs'} (FK + TMR).\n"
+    missing = []
+    if not have_smpl:
+        missing.append("smpl_model = the neutral SMPL-H model.npz (ONE registration at "
+                       "mano.is.tue.mpg.de; no DMPL, no gender split needed)")
+    if not have_tmr:
+        missing.append("tmr_repo = a clone of github.com/Mathux/TMR (offline byte-exact "
+                       "263-d converter; ships its own reference skeleton)")
     return (
-        "\nFeature extraction hand-off (the one asset-gated step; see motion_model/README.md):\n"
-        f"  1. In {hml}, run raw_pose_processing on {out/'amass_copy'}/*.npz with the\n"
-        f"     SMPL+H model at {smpl} (needs human_body_prior) -> (T,22,3) joints.\n"
-        "  2. Run motion_representation's process_file -> new_joint_vecs/*.npy (263-d);\n"
-        "     its tgt_offsets is the one-time KIT-000021 reference baked into checkpoints.\n"
-        "  3. Fine-tuning? Use the checkpoint's SHIPPED Mean.npy/Std.npy (only recompute\n"
-        "     via cal_mean_variance if training from scratch).\n"
-        f"  4. Point the trainer's data dir at {out}.\n"
-        "  (Or use method: protomotions, which needs none of this -- it consumes the\n"
-        "  AMASS npz directly.)\n"
+        "\nFeature extraction is offline once these are set (then re-run prepare):\n"
+        + "".join(f"  - {m}\n" for m in missing)
+        + "  (Or use method: protomotions -- it consumes the AMASS npz directly, no features step.)\n"
     )
 
 
 def prepare_humanml3d(cfg) -> Path:
-    """Build the HumanML3D training skeleton from the AMASS dataset (generator methods).
+    """Build the HumanML3D training data from the AMASS dataset (generator methods).
 
-    Does everything that needs no GPU/assets -- skeleton, amass copy, splits,
-    captions -- then returns the prepared dir. The 263-d feature extraction itself
-    is the asset-gated hand-off in :func:`humanml3d_handoff`; the caller prints it.
+    Always lays out the GPU-free parts (skeleton, amass copy, splits, captions).
+    Then, if the offline feature assets are present (neutral SMPL-H + a cloned TMR),
+    extracts the 263-d ``new_joint_vecs`` automatically; otherwise the caller prints
+    the recipe. Returns the prepared dir.
     """
+    from . import features  # local import: features pulls in nothing heavy at import
+
     index = load_index(cfg.dataset_dir)
     clips = index["clips"]
     out = cfg.prepared_dir
@@ -135,4 +133,7 @@ def prepare_humanml3d(cfg) -> Path:
     copy_amass(cfg.dataset_dir, dirs["amass"], clips)
     write_splits(out, clips)
     write_captions(dirs["texts"], clips, cfg.conditioning)
+    if features.has_assets(cfg):
+        print("  extracting 263-d features offline (FK + TMR joints_to_guofeats) ...")
+        features.extract(cfg, clips, out)
     return out

@@ -65,8 +65,14 @@ class MotionModelConfig:
     repo: Optional[Path] = None
     """Cloned upstream training repo for the method (MoMask/MDM/ProtoMotions/CLoSD)."""
 
+    tmr_repo: Optional[Path] = None
+    """Mathux/TMR checkout -- its ``joints_to_guofeats`` does the offline, byte-exact
+    263-d conversion (and ships the reference skeleton, so no gated AMASS clip). Set
+    this + ``smpl_model`` and generator ``prepare`` extracts features automatically."""
+
     humanml3d_repo: Optional[Path] = None
-    """EricGuo5513/HumanML3D checkout -- feature extraction for generator methods."""
+    """Deprecated alias kept for configs that set it; TMR (``tmr_repo``) is the
+    offline feature path now. Only used in the printed hand-off when TMR is unset."""
 
     smpl_model: Optional[Path] = None
     """SMPL / SMPL-H body-model directory (feature extraction and physics sim).
@@ -121,7 +127,7 @@ class MotionModelConfig:
     def __post_init__(self) -> None:
         self.dataset_dir = Path(self.dataset_dir)
         self.work_root = Path(self.work_root)
-        for name in ("repo", "humanml3d_repo", "smpl_model", "resume_checkpoint"):
+        for name in ("repo", "tmr_repo", "humanml3d_repo", "smpl_model", "resume_checkpoint"):
             val = getattr(self, name)
             if val is not None:
                 setattr(self, name, Path(val))

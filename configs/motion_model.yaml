@@ -24,10 +24,11 @@ trainer_python: python             # interpreter for the upstream trainer's env
 # cuda_device: "0"                 # pin CUDA_VISIBLE_DEVICES for the subprocess
 
 # --- Upstream repos + assets (only the selected method's are needed) ------
-# repo: /opt/momask-codes                  # cloned trainer repo
-# humanml3d_repo: /opt/HumanML3D           # generators: 263-d feature extraction
-# smpl_model: /opt/body_models/smpl        # generators + physics sim (see licence note)
-# resume_checkpoint: /opt/checkpoints/pretrained.pt  # WARM-START, then full fine-tune
+# repo: /opt/repos/momask                  # cloned trainer repo
+# resume_checkpoint: /opt/models/pretrained.pt   # WARM-START, then full fine-tune
+# Offline 263-d feature extraction (generator methods only; protomotions needs none):
+# tmr_repo: /opt/repos/tmr                  # clone of github.com/Mathux/TMR (byte-exact converter)
+# smpl_model: /opt/models/smplh/neutral/model.npz  # ONE gated download (mano.is.tue.mpg.de), neutral
 
 # --- Generator training (momask / mdm) -----------------------------------
 conditioning: none        # none | text | action  (action uses cluster.py labels)

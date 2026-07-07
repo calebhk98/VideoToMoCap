@@ -75,23 +75,30 @@ case "$BACKEND" in
   *) echo "unknown backend: $BACKEND" >&2; exit 2 ;;
 esac
 
+# The offline 263-d feature path for the generators: TMR's joints_to_guofeats
+# (byte-exact HumanML3D, ships its own reference skeleton) + human_body_prior FK.
+setup_features() {  # setup_features <env-name>
+  clone tmr https://github.com/Mathux/TMR
+  "$MAMBA" run -n "$1" pip install "git+https://github.com/nghorbani/human_body_prior" einops || \
+    echo "  (install human_body_prior + einops into env $1 by hand if this failed)"
+}
+
 # --- motion model (dataset -> model) --------------------------------------
 case "$METHOD" in
   ""|noop) : ;;
-  momask) clone momask https://github.com/EricGuo5513/momask-codes; make_env momask momask; fetch_weights momask
-          clone humanml3d https://github.com/EricGuo5513/HumanML3D ;;  # feature extraction
-  mdm)    clone mdm https://github.com/GuyTevet/motion-diffusion-model; make_env mdm mdm; fetch_weights mdm
-          "$MAMBA" run -n mdm pip install "git+https://github.com/nghorbani/human_body_prior" || true
-          clone humanml3d https://github.com/EricGuo5513/HumanML3D ;;
+  momask) clone momask https://github.com/EricGuo5513/momask-codes; make_env momask momask; fetch_weights momask; setup_features momask ;;
+  mdm)    clone mdm https://github.com/GuyTevet/motion-diffusion-model; make_env mdm mdm; fetch_weights mdm; setup_features mdm ;;
   protomotions) clone protomotions https://github.com/NVlabs/ProtoMotions; make_env protomotions protomotions; fetch_weights protomotions ;;
-  closd)  clone closd https://github.com/GuyTevet/CLoSD; make_env closd closd; fetch_weights closd ;;
+  closd)  clone closd https://github.com/GuyTevet/CLoSD; make_env closd closd; fetch_weights closd; setup_features closd ;;
   *) echo "unknown method: $METHOD" >&2; exit 2 ;;
 esac
 
-# --- gated body models (register once; auto-download impossible) -----------
-echo "== gated body models (one-time registration; then fully offline) =="
-check_gated "smpl/SMPL_NEUTRAL.pkl"      "SMPL neutral"  "smpl.is.tue.mpg.de"
-check_gated "smplh/neutral/model.npz"    "SMPL-H (AMASS)" "mano.is.tue.mpg.de"
+# --- gated body model (ONE registration; then fully offline) ---------------
+# Only the generators need it (for FK). protomotions needs none of this.
+if [ "$METHOD" != "protomotions" ] && [ -n "$METHOD" ] && [ "$METHOD" != "noop" ]; then
+  echo "== gated body model (one-time registration; then fully offline) =="
+  check_gated "smplh/neutral/model.npz" "SMPL-H neutral (no DMPL, no gender split)" "mano.is.tue.mpg.de"
+fi
 
 echo
 echo "Setup done. Edit configs/*.yaml so repo/smpl_model paths point under $REPOS and $MODELS,"

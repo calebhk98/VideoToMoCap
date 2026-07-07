@@ -19,7 +19,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from motion_model import cli, data
+from motion_model import cli, data, features
 from motion_model.config import MotionModelConfig, load_config
 from motion_model.trainers import TrainerError, available_methods, get_trainer
 
@@ -121,12 +121,52 @@ def test_fps_warning_only_off_multiples_of_20():
     assert data.fps_warning(30) is not None
 
 
-def test_humanml3d_handoff_both_branches():
-    gated = data.humanml3d_handoff(SimpleNamespace(humanml3d_repo=None, smpl_model=None), Path("/x"))
-    assert "gated on external assets" in gated
-    ready = data.humanml3d_handoff(
-        SimpleNamespace(humanml3d_repo=Path("/h"), smpl_model=Path("/s")), Path("/x"))
-    assert "Feature extraction hand-off" in ready and "cal_mean_variance" in ready
+def test_humanml3d_handoff_missing_vs_ready():
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        missing = data.humanml3d_handoff(SimpleNamespace(tmr_repo=None, smpl_model=None), tmp)
+        assert "mano.is.tue.mpg.de" in missing and "Mathux/TMR" in missing
+        tmr = tmp / "tmr"; tmr.mkdir()
+        model = tmp / "m.npz"; model.write_bytes(b"x")
+        ready = data.humanml3d_handoff(SimpleNamespace(tmr_repo=tmr, smpl_model=model), tmp)
+        assert "extracted offline" in ready
+
+
+def _feature_cfg(tmp: Path):
+    """A config with the offline feature assets (fake but present) wired up."""
+    tmr = tmp / "tmr"; tmr.mkdir(parents=True, exist_ok=True)
+    model = tmp / "smplh_neutral.npz"; model.write_bytes(b"x")
+    return _cfg(tmp, method="momask", tmr_repo=tmr, smpl_model=model)
+
+
+def test_features_has_assets():
+    with tempfile.TemporaryDirectory() as tmp:
+        assert features.has_assets(_feature_cfg(Path(tmp)))
+        assert not features.has_assets(_cfg(Path(tmp) / "x", method="momask"))
+
+
+def test_features_driver_matches_upstream_convention():
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        cfg = _feature_cfg(tmp)
+        script = features._driver_script(cfg, tmp / "vecs")
+        assert "joints_to_guofeats" in script          # drives TMR, not a reimplementation
+        assert "joints[..., 0] *= -1" in script         # TMR's proper-rotation fix
+        assert "num_betas=10" in script                 # neutral FK, DMPL skipped
+        assert str(cfg.tmr_repo) in script and str(cfg.smpl_model) in script
+
+
+def test_prepare_runs_feature_extraction_when_assets_present():
+    with tempfile.TemporaryDirectory() as tmp:
+        cfg = _feature_cfg(Path(tmp))
+        captured = {}
+        orig = features._run
+        features._run = lambda c, script: captured.setdefault("script", script)
+        try:
+            get_trainer(cfg).prepare()   # momask prepare -> data.prepare_humanml3d -> features.extract
+        finally:
+            features._run = orig
+        assert "joints_to_guofeats" in captured.get("script", "")
 
 
 # -- noop end-to-end --------------------------------------------------------
