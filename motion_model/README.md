@@ -15,6 +15,16 @@ walking / sitting / reaching" is not yet an agent that *chooses* to do those
 things — that's (B), a control/RL/planning problem that consumes (A) as a
 primitive.
 
+> **You probably don't need (B) to make content.** "No live performer" splits
+> into *authored* (you script the sequence of action prompts — cheap,
+> controllable, works today) vs *autonomous* (a learned policy decides actions
+> live). For rendered video, author the timeline and drive a **text-conditioned**
+> generator. See **`NEXT_STEPS.md`** for the full ordered plan, and the
+> recommendation to personalize with **LoRA-MDM** (keeps text control, shifts
+> style toward you) rather than the unconditional fine-tune below — MDM's
+> unconditional path on HumanML3D is not officially supported and its loader
+> crashes on empty captions.
+
 ## Why fine-tune MDM rather than train from scratch
 
 - **Size.** Motion-diffusion models are small — MDM's transformer is on the

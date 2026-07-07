@@ -58,14 +58,20 @@ def write_splits(out: Path, clips: list) -> None:
     print(f"  splits: {len(train)} train / {len(val)} val")
 
 
+# MDM's HumanML3D loader (Text2MotionDatasetV2) parses each caption line as
+# "text#token/POS token/POS ...#start#end" and CRASHES on an empty file. So the
+# placeholder must be a syntactically valid line, not "". This neutral line keeps
+# the loader happy for a first (style-only) run; replace it with real captions
+# -- e.g. from cluster.py action labels -- to get promptable text control.
+PLACEHOLDER_CAPTION = "a person moves#a/DET person/NOUN moves/VERB#0.0#0.0\n"
+
+
 def scaffold_texts(dirs: dict, clips: list) -> None:
-    """Ensure every clip has a caption file, leaving existing ones untouched."""
+    """Ensure every clip has a loader-valid caption file, leaving existing ones untouched."""
     for c in clips:
         t = dirs["texts"] / f"{c['clip_id']}.txt"
         if not t.exists():
-            # Empty caption => unconditional. Fill with "<action>#...#..." for
-            # HumanML3D-style text conditioning.
-            t.write_text("")
+            t.write_text(PLACEHOLDER_CAPTION)
 
 
 def extract_features(args, clips: list, dirs: dict) -> None:
@@ -86,9 +92,21 @@ def extract_features(args, clips: list, dirs: dict) -> None:
         f"  1. Copy {args.dataset}/amass/*.npz into the HumanML3D AMASS input tree.\n"
         f"  2. Run HumanML3D's raw_pose_processing + motion_representation notebooks/scripts\n"
         f"     ({hml}) with SMPL model at {smpl} to produce new_joint_vecs/*.npy (263-d).\n"
-        f"  3. Point MDM's --data_dir at {dirs['vecs'].parent}.\n"
-        "  (HumanML3D indexes SMPL-H poses[:66] for its 22 joints; our AMASS npz already\n"
-        "   stores the SMPL body in those first 66 slots, so it consumes cleanly.)\n"
+        "  3. Run HumanML3D's cal_mean_variance to make Mean.npy / Std.npy OVER YOUR\n"
+        "     corpus (not the shipped HumanML3D stats) and place them beside new_joint_vecs.\n"
+        f"  4. Point MDM's --data_dir at {dirs['vecs'].parent}.\n"
+        "\n"
+        "  Gotchas the bridge cannot fix for you (verified against the HumanML3D notebooks):\n"
+        "   * FPS: HumanML3D decimates with int(source_fps/20). Export at 20 fps\n"
+        "     (PipelineConfig.target_fps, now defaulting to 20) so this stride is exact.\n"
+        "   * gender: raw_pose_processing has no 'neutral' branch and falls through to the\n"
+        "     FEMALE body model. Harmless (uniform_skeleton retargets shape away) but add a\n"
+        "     neutral branch to the notebook if you want it exact.\n"
+        "   * quality: HumanML3D trusts every joint as ground truth -- it has no notion of\n"
+        "     our joint_valid mask. Run quality_filter/refine BEFORE this step so HMR jitter\n"
+        "     and out-of-frame limb guesses aren't learned as 'your style'.\n"
+        "   (HumanML3D indexes SMPL-H poses[:66] for its 22 joints; our AMASS npz already\n"
+        "    stores the SMPL body in those first 66 slots, so it consumes cleanly.)\n"
     )
 
 
