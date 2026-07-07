@@ -46,18 +46,48 @@ world-grounded methods and its output format (SMPL-X params in
 drop-in alternatives; SLAHMR is intentionally *not* wrapped — at ~78 hours per
 10-minute clip it would take longer than the footage spans to process it.
 
-The backend is one config line (`backend: gvhmr|wham|tram|noop`), so you can
-benchmark two on a day of footage and pick the winner without touching code.
+The backend is one config line, so you can benchmark two on a day of footage
+and pick the winner without touching code.
 
-### The hands gap is real and not solved
+### High-detail hands — swappable, and now a config line
 
-The DanceHMR paper is explicit that body-only HMR methods (including all three
-we wrap) **under-recover fine hand articulation**. So "pick up an apple and eat
-it" produces correct arm motion but a floating/neutral hand. This pipeline does
-**not** pretend otherwise: it zero-pads the SMPL hand joints and flags it. The
-documented path forward (run DanceHMR on manual-interaction clips, or move the
-whole stack to SMPL-X whole-body) is in `motion_model/README.md`. Treat it as
-phase 2, not a config flag.
+Body-only methods (GVHMR/WHAM/TRAM) under-recover fingers — "pick up an apple
+and eat it" comes out with a neutral hand. Because your work needs hands, the
+pipeline now ships two families that recover articulated hands, all selectable
+via `backend:`:
+
+| `backend:` | Kind | Hands | Notes |
+|---|---|---|---|
+| `gvhmr` `wham` `tram` | body-only | ✗ (neutral) | fastest bulk; best when hands don't matter |
+| `smplestx` (a.k.a. `smplerx`) | whole-body SMPL-X | ✓ | recommended general whole-body model |
+| `whac` | whole-body SMPL-X | ✓ | **moving-camera + world-grounded** with hands |
+| `hand4whole` | whole-body SMPL-X | ✓✓ | CVPR 2026, MIT, best single-model hands |
+| `osx` `multihmr` | whole-body SMPL-X | ✓ | MIT / fast alternatives |
+| `fusion` | body + hand net | ✓✓ | GVHMR/WHAM/… body **+ WiLoR/HaMeR** fingers |
+
+The **`fusion`** backend is the most flexible: it runs any body backend for the
+body + camera, runs WiLoR or HaMeR for the fingers, and grafts the MANO finger
+pose into SMPL-X's `left_hand_pose`/`right_hand_pose` (with One-Euro smoothing
+and last-good-frame gap filling; optional FK-based wrist relocalization). Config:
+
+```yaml
+backend: fusion
+body_backend: whac       # any body/whole-body backend (moving-camera here)
+hand_backend: wilor      # 'wilor' (fast, default) or 'hamer'
+backend_repo: /opt/WHAC          # the BODY tool
+hand_repo:    /opt/WiLoR         # the HAND tool
+graft_wrist: false       # advanced: compose the hand-net wrist into the chain
+```
+
+Every hand-capable backend carries hands all the way through anonymization and
+into the AMASS-SMPL-H hand slots, so the motion model can learn them. DanceHMR
+(the ideal single video-native model) was **withdrawn with no public code** as
+of 2026-07, so it is documented but not wrapped.
+
+**Hardware note (dual RTX 3090 / 48 GB):** none of these need more than ~10 GB
+for batch-1 inference, so a single 3090 runs any of them. The second card is
+headroom — run `fusion`'s body and hand tools on separate GPUs, or process two
+clips at once, to chew through the backlog faster.
 
 ### Step 2 — separate shape from pose (the privacy mechanism)
 
@@ -182,24 +212,31 @@ videotomocap/
   cli.py               `python -m videotomocap ...`
   backends/
     base.py            HMRBackend ABC + rotation/SMPL-family conversion helpers
-    gvhmr.py           default: wraps GVHMR demo, parses hmr4d_results.pt
-    wham.py  tram.py   alternative world-grounded backends
+    gvhmr.py           default body-only: wraps GVHMR, parses hmr4d_results.pt
+    wham.py  tram.py   alternative body-only world-grounded backends
+    smplx_frames.py    whole-body SMPL-X (smplestx/whac/osx/hand4whole/multihmr)
+    fusion.py          body + hand net (WiLoR/HaMeR) → SMPL-X with real hands
     noop.py            synthetic backend (no GPU) for tests/dry-runs
 motion_model/          pipeline 2: MDM fine-tuning bridge, config, and docs
 scripts/selftest.py    GPU-free end-to-end test of pipeline 1
-tests/                 rotation-math unit tests
-configs/pipeline.yaml  example config
+tests/                 unit tests (rotation math, hands/fusion, config/ingest/CLI)
+configs/               example + dropzone configs
+dropzone/              drop your videos here
 ```
 
 ## Honest scope
 
-- **Done and tested:** ingestion, manual exclusion, backend adapter layer,
-  SMPL-72 normalization + rotation conversions, shape/pose anonymization, fps
-  resampling, AMASS dataset aggregation with splits, resumable orchestration,
-  CLI, MDM data-prep bridge.
-- **Wired but needs your GPU + registered SMPL-X weights to actually run:** the
-  GVHMR/WHAM/TRAM inference itself. Output-path/field names for WHAM and TRAM
-  are centralized and commented — verify them against your checkout revision.
-- **Deliberately left as phase 2:** hand articulation (DanceHMR/SMPL-X),
-  HumanML3D 263-d feature extraction (needs their repo + SMPL model), and the
-  entire behavior/decision layer (B).
+- **Done and tested (83% line coverage; core modules 95–100%):** ingestion,
+  manual exclusion, backend adapter layer, SMPL-72 + MANO-hand normalization and
+  rotation conversions, shape/pose anonymization, fps resampling, the
+  hand-graft/FK/smoothing glue, AMASS-SMPL-H dataset aggregation with splits,
+  resumable orchestration, CLI, MDM data-prep bridge. GPU-free throughout via
+  the `noop` backend.
+- **Wired but needs your GPU + registered SMPL-X/MANO weights to actually run:**
+  the neural inference itself (GVHMR/WHAM/TRAM, the SMPL-X whole-body backends,
+  and WiLoR/HaMeR for fusion). Each backend's demo command and output-file
+  layout are centralized and commented — verify them against your checkout
+  revision (upstream demos drift).
+- **Deliberately left as phase 2:** HumanML3D 263-d feature extraction (needs
+  their repo + SMPL model), a learned wrist-correction regressor (the geometric
+  `graft_wrist` is a first cut), and the entire behavior/decision layer (B).

@@ -85,16 +85,27 @@ Your footage has no text labels. Options, cheapest first:
 `prepare_mdm_data.py` writes an empty caption per clip by default (option 1);
 fill `texts/<clip_id>.txt` to move toward option 2/3.
 
-## The hands problem (unsolved, flagged not hidden)
+## Hands
 
-Body-only HMR (GVHMR/WHAM/TRAM) does **not** recover fine hand articulation, so
-"pick up an apple and eat it" will have a floating/neutral hand in the current
-dataset (Pipeline 1 zero-pads the hand joints). Paths forward:
-- Run **DanceHMR** (hand-aware whole-body, ByteDance, 2026) on the eating/manual
-  clips and merge its hand params into the SMPL-X hand slots.
-- Move the whole pipeline to **SMPL-X** and train a whole-body motion model.
+Body-only HMR (GVHMR/WHAM/TRAM) does not recover fine hand articulation. If your
+clips need hands ("pick up an apple and eat it"), pick a hand-capable backend in
+Pipeline 1 — it's now a config line, not phase 2:
+- **Whole-body SMPL-X:** `backend: smplestx | whac | hand4whole | osx | multihmr`.
+- **Fusion:** `backend: fusion` with `body_backend` + `hand_backend`
+  (WiLoR/HaMeR) — grafts MANO fingers onto any body estimate.
 
-Either is a real extension, not a config flag — treat it as phase 2.
+Those backends fill `left_hand_pose`/`right_hand_pose`, and the AMASS export
+writes them into the SMPL-H hand slots, so the dataset carries real fingers.
+
+To train a motion model that *uses* the hands, you need a **whole-body (SMPL-H
+or SMPL-X) motion representation**, not the 22-joint HumanML3D body features MDM
+uses by default — otherwise the finger channels are discarded at feature-
+extraction time. Options: extend the HumanML3D feature set to include hand
+joints, or train a whole-body motion diffusion model. That extension is the
+remaining phase-2 work on the model side; the *data* already has the hands.
+
+DanceHMR (the ideal single video-native whole-body+hands model) was withdrawn
+with no public code as of 2026-07 — watch for a re-release.
 
 ## (B) The behavior layer — pointer
 

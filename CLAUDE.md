@@ -23,17 +23,19 @@ on a laptop. See `README.md` for the method research and rationale.
 videotomocap/
   config.py       PipelineConfig dataclass + YAML loader. All knobs live here.
   ingest.py       Scan footage → Manifest (JSON). Clip states + exclude/include.
-  pose.py         SmplMotion container (SMPL-72 axis-angle). anonymize() drops
-                  betas = THE privacy step. resample_fps().
-  dataset.py      Aggregate anonymized clips → AMASS-SMPL npz + train/val split.
+  pose.py         SmplMotion container (SMPL-72 body + optional MANO hands).
+                  anonymize() drops betas = THE privacy step. resample_fps().
+  dataset.py      Aggregate anonymized clips → AMASS-SMPL-H npz + train/val split.
   pipeline.py     Orchestration: scan → hmr → anonymize → build. Resumable.
   cli.py          `python -m videotomocap <cmd>`. Thin wrapper over the above.
   backends/
-    base.py       HMRBackend ABC + rotation/SMPL conversion helpers (pure NumPy).
-    gvhmr.py      Default backend. Wraps GVHMR demo, parses hmr4d_results.pt.
-    wham.py       Alt backend.  Parses wham_output.pkl.
-    tram.py       Alt backend.  Parses hps_track_*.npy.
-    noop.py       Synthetic backend — no GPU/weights. Powers the tests.
+    base.py         HMRBackend ABC + rotation/SMPL conversion helpers (pure NumPy).
+    gvhmr/wham/tram Body-only backends (fast; hands zero-padded).
+    smplx_frames.py Whole-body SMPL-X backends (smplestx/whac/osx/hand4whole/
+                    multihmr) — one per-frame SMPL-X parser, recovers hands.
+    fusion.py       Body backend + hand net (WiLoR/HaMeR) → SMPL-X with real
+                    hands. FK wrist relocalization + smoothing glue lives here.
+    noop.py         Synthetic backend — no GPU/weights. Powers the tests.
 motion_model/     Pipeline 2: MDM data-prep bridge, finetune config, docs.
 scripts/selftest.py   GPU-free end-to-end test of pipeline 1.
 tests/            Unit tests (rotation math, pose helpers).
@@ -52,9 +54,15 @@ video ──backend.run()──▶ SmplMotion ──anonymize()──▶ SmplMot
 **Every backend must return a `SmplMotion` with `poses` shape `(T, 72)`
 axis-angle** (`global_orient[3] + body_pose[69]`). That is the seam that keeps
 the rest of the pipeline backend-agnostic. `backends/base.py` has helpers
-(`to_axis_angle`, `assemble_smpl72`) to convert from SMPL-X 63-dim body,
-rotation matrices, or 6D. If you add a backend, convert to SMPL-72 there and
-nowhere else.
+(`to_axis_angle`, `assemble_smpl72`, `assemble_hand`, `axis_angle_to_matrix`) to
+convert from SMPL-X 63-dim body, rotation matrices, or 6D. If you add a backend,
+convert to SMPL-72 there and nowhere else.
+
+**Hands are optional and carried alongside the body:** a backend may also set
+`left_hand_pose`/`right_hand_pose` `(T, 45)` MANO. Body-only backends leave them
+`None` (→ neutral). `anonymize`/`resample_fps`/npz round-trip all preserve
+hands; the AMASS export drops them into the SMPL-H hand slots. Never fold hand
+articulation into the SMPL-72 body block.
 
 ### Invariants — do not break these
 
