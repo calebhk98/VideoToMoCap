@@ -24,16 +24,30 @@ from typing import Dict, List
 
 import numpy as np
 
-from .pose import SMPL_POSE_DIM, SmplMotion
+from .pose import MANO_POSE_DIM, SmplMotion
 
 AMASS_SMPLH_POSE_DIM = 156  # 52 joints * 3
+# SMPL-H pose layout: [0:66] = global_orient + 21 body joints, then the two hands.
+SMPLH_BODY_END = 66
+SMPLH_LHAND = slice(66, 66 + MANO_POSE_DIM)    # 66:111
+SMPLH_RHAND = slice(111, 111 + MANO_POSE_DIM)  # 111:156
 
 
 def to_amass_npz(motion: SmplMotion, gender: str = "neutral") -> Dict[str, np.ndarray]:
-    """Convert a (already anonymized) SmplMotion into an AMASS-SMPL npz payload."""
+    """Convert a (already anonymized) SmplMotion into an AMASS-SMPL-H npz payload.
+
+    Our SMPL-72 body maps to SMPL-H's first 66 slots (global_orient + 21 body
+    joints share topology). The coarse SMPL hand joints 22-23 (poses[66:72]) are
+    intentionally dropped in favour of articulated MANO hands when we have them;
+    otherwise the hand slots stay neutral (zero).
+    """
     t = motion.n_frames
     poses = np.zeros((t, AMASS_SMPLH_POSE_DIM), np.float32)
-    poses[:, :SMPL_POSE_DIM] = motion.poses  # global_orient + body_pose; hands/face left neutral
+    poses[:, :SMPLH_BODY_END] = motion.poses[:, :SMPLH_BODY_END]  # global_orient + 21 body joints
+    if motion.left_hand_pose is not None:
+        poses[:, SMPLH_LHAND] = motion.left_hand_pose
+    if motion.right_hand_pose is not None:
+        poses[:, SMPLH_RHAND] = motion.right_hand_pose
     return {
         "poses": poses,
         "trans": motion.trans.astype(np.float32),

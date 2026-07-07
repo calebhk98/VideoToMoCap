@@ -13,11 +13,23 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from videotomocap.backends.base import (
+    BackendError,
     _matrix_to_axis_angle,
+    _rot6d_to_axis_angle,
     assemble_smpl72,
+    axis_angle_to_matrix,
     to_axis_angle,
 )
 from videotomocap.pose import SMPL_POSE_DIM, SmplMotion, anonymize, resample_fps
+
+
+def assert_raises(exc, fn):
+    """Tiny pytest.raises stand-in so tests run under plain `python` too."""
+    try:
+        fn()
+    except exc:
+        return
+    raise AssertionError(f"expected {exc.__name__} was not raised")
 
 
 def _aa_to_matrix(aa: np.ndarray) -> np.ndarray:
@@ -86,6 +98,57 @@ def test_resample_changes_length():
     r = resample_fps(m, 30.0)
     assert abs(r.n_frames - 30) <= 2
     assert r.fps == 30.0
+
+
+def test_matrix_to_axis_angle_180_degrees():
+    # Regression: the old skew-based extraction returned zeros for exact 180 deg
+    # rotations (symmetric matrix -> skew part vanishes). Must recover axis*pi.
+    for axis in (np.array([1.0, 0, 0]), np.array([0, 1.0, 0]),
+                 np.array([1.0, 2.0, -1.0]) / np.linalg.norm([1.0, 2.0, -1.0])):
+        aa = (np.pi * axis)[None]
+        m = _aa_to_matrix(aa)
+        back = _matrix_to_axis_angle(m)
+        # axis-angle at pi is sign-ambiguous, so compare the rotation matrices
+        assert np.allclose(_aa_to_matrix(back), m, atol=1e-4), axis
+
+
+def test_rot6d_to_axis_angle_identity_and_match():
+    # first two columns of identity -> zero rotation
+    r6 = np.array([[1.0, 0, 0, 0, 1, 0]])
+    assert np.allclose(_rot6d_to_axis_angle(r6), 0.0, atol=1e-6)
+    # 6D taken from a real rotation's first two columns matches the matrix route
+    rng = np.random.default_rng(3)
+    aa = rng.normal(0, 0.6, size=(20, 3))
+    mat = _aa_to_matrix(aa)
+    r6 = np.concatenate([mat[..., :, 0], mat[..., :, 1]], axis=-1)  # [col0, col1]
+    assert np.allclose(_rot6d_to_axis_angle(r6), _matrix_to_axis_angle(mat), atol=1e-4)
+
+
+def test_to_axis_angle_accepts_6d_shapes():
+    rng = np.random.default_rng(4)
+    aa = rng.normal(0, 0.5, size=(5, 24, 3))
+    mat = _aa_to_matrix(aa)
+    r6_joint = np.concatenate([mat[..., :, 0], mat[..., :, 1]], axis=-1)  # (T, njoints, 6)
+    r6_flat = r6_joint.reshape(5, 24 * 6)             # (T, njoints*6)
+    ref = aa.reshape(5, 72)
+    assert np.allclose(to_axis_angle(r6_joint, 24), ref, atol=1e-4)
+    assert np.allclose(to_axis_angle(r6_flat, 24), ref, atol=1e-4)
+
+
+def test_axis_angle_to_matrix_roundtrip_is_orthonormal():
+    rng = np.random.default_rng(5)
+    aa = rng.normal(0, 0.7, size=(10, 3))
+    m = axis_angle_to_matrix(aa)
+    eye = np.einsum("...ij,...kj->...ik", m, m)  # R R^T should be I
+    assert np.allclose(eye, np.eye(3), atol=1e-6)
+
+
+def test_to_axis_angle_rejects_bad_shape():
+    assert_raises(BackendError, lambda: to_axis_angle(np.zeros((4, 5)), 24))
+
+
+def test_assemble_smpl72_rejects_bad_width():
+    assert_raises(BackendError, lambda: assemble_smpl72(np.zeros((3, 3)), np.zeros((3, 50))))
 
 
 def _run_all():

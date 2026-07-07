@@ -65,20 +65,67 @@ class HMRBackend(ABC):
 # ---------------------------------------------------------------------------
 
 def _matrix_to_axis_angle(mat: np.ndarray) -> np.ndarray:
-    """(..., 3, 3) rotation matrices -> (..., 3) axis-angle. Pure NumPy."""
+    """(..., 3, 3) rotation matrices -> (..., 3) axis-angle. Pure NumPy.
+
+    Goes via a quaternion using Shepperd's method (pick the largest of trace /
+    the three diagonals for the divisor) rather than reading the skew-symmetric
+    part directly.  The naive skew approach silently returns a zero vector for
+    exact 180-degree rotations -- there the matrix is symmetric so the skew part
+    vanishes -- which corrupts any joint that flips a full half-turn.  This route
+    is stable across the whole range [0, pi].
+    """
     m = np.asarray(mat, dtype=np.float64)
-    trace = np.trace(m, axis1=-2, axis2=-1)
-    cos = np.clip((trace - 1.0) / 2.0, -1.0, 1.0)
-    angle = np.arccos(cos)
-    # axis from the skew-symmetric part
-    rx = m[..., 2, 1] - m[..., 1, 2]
-    ry = m[..., 0, 2] - m[..., 2, 0]
-    rz = m[..., 1, 0] - m[..., 0, 1]
-    axis = np.stack([rx, ry, rz], axis=-1)
-    norm = np.linalg.norm(axis, axis=-1, keepdims=True)
-    small = norm < 1e-8
-    axis = np.where(small, np.zeros_like(axis), axis / np.where(small, 1.0, norm))
+    m00, m01, m02 = m[..., 0, 0], m[..., 0, 1], m[..., 0, 2]
+    m10, m11, m12 = m[..., 1, 0], m[..., 1, 1], m[..., 1, 2]
+    m20, m21, m22 = m[..., 2, 0], m[..., 2, 1], m[..., 2, 2]
+    trace = m00 + m11 + m22
+
+    # Four numerically-distinct branches; each is well-conditioned in its region.
+    def _branch(s, w, x, y, z):
+        return w, x, y, z
+
+    s0 = np.sqrt(np.maximum(trace + 1.0, 1e-12)) * 2.0
+    b0 = (0.25 * s0, (m21 - m12) / s0, (m02 - m20) / s0, (m10 - m01) / s0)
+    s1 = np.sqrt(np.maximum(1.0 + m00 - m11 - m22, 1e-12)) * 2.0
+    b1 = ((m21 - m12) / s1, 0.25 * s1, (m01 + m10) / s1, (m02 + m20) / s1)
+    s2 = np.sqrt(np.maximum(1.0 + m11 - m00 - m22, 1e-12)) * 2.0
+    b2 = ((m02 - m20) / s2, (m01 + m10) / s2, 0.25 * s2, (m12 + m21) / s2)
+    s3 = np.sqrt(np.maximum(1.0 + m22 - m00 - m11, 1e-12)) * 2.0
+    b3 = ((m10 - m01) / s3, (m02 + m20) / s3, (m12 + m21) / s3, 0.25 * s3)
+
+    cond0 = trace > 0
+    cond1 = (~cond0) & (m00 >= m11) & (m00 >= m22)
+    cond2 = (~cond0) & (~cond1) & (m11 >= m22)
+    conds = [cond0, cond1, cond2]
+    quat = np.stack(
+        [np.select(conds, [b0[i], b1[i], b2[i]], default=b3[i]) for i in range(4)],
+        axis=-1,
+    )
+    quat /= np.linalg.norm(quat, axis=-1, keepdims=True) + 1e-12
+    quat = np.where(quat[..., :1] < 0, -quat, quat)  # canonical hemisphere (w >= 0)
+
+    w = quat[..., 0]
+    xyz = quat[..., 1:]
+    sin_half = np.linalg.norm(xyz, axis=-1)
+    angle = 2.0 * np.arctan2(sin_half, w)  # in [0, pi]
+    small = sin_half < 1e-8
+    axis = np.where(small[..., None], np.zeros_like(xyz), xyz / (sin_half[..., None] + 1e-12))
     return (axis * angle[..., None]).astype(np.float32)
+
+
+def axis_angle_to_matrix(aa: np.ndarray) -> np.ndarray:
+    """(..., 3) axis-angle -> (..., 3, 3) rotation matrix (Rodrigues). Pure NumPy."""
+    aa = np.asarray(aa, dtype=np.float64)
+    theta = np.linalg.norm(aa, axis=-1, keepdims=True)
+    small = theta < 1e-8
+    axis = np.where(small, 0.0, aa / np.where(small, 1.0, theta))
+    x, y, z = axis[..., 0], axis[..., 1], axis[..., 2]
+    zero = np.zeros_like(x)
+    K = np.stack([zero, -z, y, z, zero, -x, -y, x, zero], -1).reshape(aa.shape[:-1] + (3, 3))
+    eye = np.eye(3)
+    s = np.sin(theta)[..., None]
+    c = np.cos(theta)[..., None]
+    return eye + s * K + (1.0 - c) * (K @ K)
 
 
 def _rot6d_to_axis_angle(r6: np.ndarray) -> np.ndarray:
@@ -112,6 +159,17 @@ def to_axis_angle(arr: np.ndarray, njoints: int) -> np.ndarray:
     if arr.ndim == 2 and arr.shape[1] == njoints * 6:
         return _rot6d_to_axis_angle(arr.reshape(t, njoints, 6)).reshape(t, njoints * 3)
     raise BackendError(f"Cannot interpret rotation block of shape {arr.shape} for {njoints} joints")
+
+
+def assemble_hand(hand_pose) -> np.ndarray:
+    """Normalize a MANO hand block to (T, 45) axis-angle.
+
+    SMPL-X stores hands as MANO's own per-joint articulation (15 joints x 3),
+    which drops straight into our SmplMotion hand fields -- provided the upstream
+    method used full pose, not PCA (``use_pca=False``). Accepts axis-angle,
+    rotation matrices, or 6D via the generic converter.
+    """
+    return to_axis_angle(np.asarray(hand_pose), 15)
 
 
 def assemble_smpl72(global_orient: np.ndarray, body_pose: np.ndarray) -> np.ndarray:

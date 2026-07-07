@@ -33,7 +33,9 @@ class PipelineConfig:
 
     # --- HMR backend -----------------------------------------------------
     backend: str = "gvhmr"
-    """One of the registered backends: 'gvhmr', 'wham', 'tram', 'noop'."""
+    """A registered backend. Body-only: 'gvhmr','wham','tram'. Whole-body SMPL-X
+    (with hands): 'smplestx','whac','osx','hand4whole','multihmr'. Combined:
+    'fusion' (body + hand net). Testing: 'noop'."""
 
     backend_repo: Optional[Path] = None
     """Path to the cloned upstream repo (e.g. the GVHMR checkout)."""
@@ -45,6 +47,23 @@ class PipelineConfig:
     """Camera ids known to be fixed/static -> skip visual odometry (GVHMR ``-s``)."""
 
     backend_extra_args: List[str] = field(default_factory=list)
+
+    # --- Fusion backend (body + dedicated hand estimator) ---------------
+    body_backend: str = "gvhmr"
+    """When backend='fusion': which body/whole-body backend supplies the body."""
+
+    hand_backend: str = "wilor"
+    """When backend='fusion': which hand specialist supplies fingers ('wilor'|'hamer')."""
+
+    hand_repo: Optional[Path] = None
+    """Cloned checkout of the hand tool (WiLoR/HaMeR)."""
+
+    hand_python: Optional[str] = None
+    """Interpreter for the hand tool; falls back to backend_python."""
+
+    graft_wrist: bool = False
+    """Compose the hand-net wrist into the body chain (advanced; see fusion.py).
+    Off by default -- keeps the body's wrist and only grafts finger articulation."""
 
     # --- Anonymization ---------------------------------------------------
     drop_shape: bool = True
@@ -70,6 +89,8 @@ class PipelineConfig:
         self.work_root = Path(self.work_root)
         if self.backend_repo is not None:
             self.backend_repo = Path(self.backend_repo)
+        if self.hand_repo is not None:
+            self.hand_repo = Path(self.hand_repo)
         if self.use_frame not in ("global", "incam"):
             raise ValueError(f"use_frame must be 'global' or 'incam', got {self.use_frame!r}")
 
