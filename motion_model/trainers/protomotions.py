@@ -7,7 +7,7 @@ and it unifies AMP / ASE / MaskedMimic / motion-tracking in one codebase.
 Crucially its converter consumes exactly Pipeline 1's npz keys (``poses`` +
 ``trans`` + ``mocap_framerate``), so the AMASS export feeds it with minimal glue
 -- NO HumanML3D step. The controller is identity-agnostic (it tracks poses), which
-fits the betas-stripped privacy invariant. See ARCHITECTURE.md for how this (B)
+fits the betas-stripped privacy invariant. See README.md for how this (B)
 layer composes with a generator (A) and renders onto MetaHuman.
 """
 

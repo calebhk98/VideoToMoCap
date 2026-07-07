@@ -1,148 +1,90 @@
-# Pipeline 2 — the motion model (making an agent move like you)
+# Pipeline 2 — the motion model
 
-Pipeline 1 (the `videotomocap` package) turns your footage into an
-**AMASS-format motion dataset** of anonymized SMPL pose. This second pipeline
-turns that dataset into a model that *generates* your movement. Two genuinely
-separate problems live here — do not conflate them:
-
-| | What it does | Status |
-|---|---|---|
-| **(A) Motion generator** | produces movement given a condition (text, action label, or nothing) | this folder — fine-tune MDM |
-| **(B) Behavior / decision layer** | decides *what* to do at each moment in a virtual environment | out of scope of "train a model"; see the note at the bottom |
-
-Training a motion model only solves (A). A generator that can produce "you
-walking / sitting / reaching" is not yet an agent that *chooses* to do those
-things — that's (B), a control/RL/planning problem that consumes (A) as a
-primitive.
-
-> **You probably don't need (B) to make content.** "No live performer" splits
-> into *authored* (you script the sequence of action prompts — cheap,
-> controllable, works today) vs *autonomous* (a learned policy decides actions
-> live). For rendered video, author the timeline and drive a **text-conditioned**
-> generator. See **`NEXT_STEPS.md`** for the full ordered plan, and the
-> recommendation to personalize with **LoRA-MDM** (keeps text control, shifts
-> style toward you) rather than the unconditional fine-tune below — MDM's
-> unconditional path on HumanML3D is not officially supported and its loader
-> crashes on empty captions.
-
-## Why fine-tune MDM rather than train from scratch
-
-- **Size.** Motion-diffusion models are small — MDM's transformer is on the
-  order of tens of millions of parameters, not billions, because joint
-  rotations over time are far lower-dimensional than pixels or text. (Confirm
-  the exact count from the checkpoint you download; published configs are ~8
-  transformer layers, latent 512.)
-- **Data.** You have hours of one person. That is plenty to *specialize* a
-  pretrained motion prior toward your style, and far too little to learn general
-  human motion from zero. Don't import Chinchilla's ~20 tokens/param ratio
-  (that's for autoregressive text) — use the **motion-specific** scaling work
-  that now exists: [ScaMo](https://github.com/shunlinlu/ScaMo_code) (CVPR'25, log
-  test-loss vs compute), Being-M0/MotionLib (ICML'25, data×model), and NVIDIA's
-  Kimodo (2026). All have public code, so you have real reference points for the
-  data:param budget rather than a guess.
-- **Mirrors the video-gen playbook:** start from a general prior, adapt on your
-  data.
-
-Repos (availability verified 2026-07):
-- MDM — https://github.com/GuyTevet/motion-diffusion-model
-- priorMDM (fine-tuning recipes) — https://github.com/priorMDM/priorMDM
-
-## Config-driven usage (like Pipeline 1)
-
-Pipeline 2 is now method-selectable from a YAML, exactly like Pipeline 1's
-backend. Pick the method in `configs/motion_model.yaml` and run:
+Pipeline 1 (`videotomocap`) turns footage into an anonymized **AMASS-SMPL-H
+dataset**. This package turns that dataset into a model that *moves like you*,
+method-selectable from a YAML exactly like Pipeline 1's backend.
 
 ```bash
-python -m motion_model methods                      # list selectable methods
-python -m motion_model --config configs/motion_model.yaml info      # what it will do
+python -m motion_model methods                                     # list methods
+python -m motion_model --config configs/motion_model.yaml info     # what it will do
 python -m motion_model --config configs/motion_model.yaml prepare   # dataset -> training data
 python -m motion_model --config configs/motion_model.yaml train     # prepare + launch training
 ```
 
-Methods (`method:` in the config — swapping is one line):
+Whole chain in one command: `python scripts/run_pipeline.py`.
 
-| method | role | features | licence-friendly for paid use |
+## Methods (`method:` in the config)
+
+| method | role | features | notes |
 |---|---|---|---|
-| `momask` | generator, ~44M (**default pick**) | HumanML3D 263-d | code MIT; SMPL gate applies |
-| `mdm` | generator, ~35M (`personalization: lora` for LoRA-MDM) | HumanML3D 263-d | code MIT; SMPL gate |
-| `protomotions` | physics controller | AMASS npz **direct** | Apache-2.0; SMPL gate |
-| `closd` | closed-loop planner+controller (A+B) | HumanML3D 263-d | MIT; SMPL gate |
-| `noop` | synthetic (tests) | — | — |
+| `momask` | generator, ~44M (**default**) | HumanML3D 263-d | best quality/effort; MIT |
+| `mdm` | generator, ~35M | HumanML3D 263-d | `personalization: lora` → LoRA-MDM (keeps text control) |
+| `protomotions` | physics controller | **AMASS npz direct** | fully automated data path; Apache-2.0, maintained |
+| `closd` | closed-loop planner+controller | HumanML3D 263-d | your generator driving a physics tracker; MIT |
+| `noop` | synthetic (tests) | — | no GPU/repo/weights |
 
-Each trainer shells out to its upstream repo (set `repo:` etc. in the config) and
-fails loud with an actionable message when a repo/asset is missing — the heavy
-training runs upstream, this is the orchestration layer. **The SMPL/SMPL-H body
-models every method needs are non-commercial by default; a paid product needs a
-commercial SMPL licence from Meshcapade** (`smpl_model:` is your responsibility).
-See `ARCHITECTURE.md` for the full four-layer stack and `NEXT_STEPS.md` for the
-ordered build.
+Each trainer shells out to its upstream repo (set `repo:` in the config) and
+fails loud with an actionable message when a repo/asset is missing. It stages your
+prepared data where the upstream loader expects it and builds the correct command
+(verified against each repo). Upstream-specific hyperparameters go through
+`extra_args:`.
 
-The subsections below explain the manual HumanML3D feature-extraction hand-off
-the generator methods orchestrate.
+## Two problems, not one
 
-## Steps
+Training a generator (A) produces movement on demand. Making the character *decide*
+what to do (B) is separate. For rendered content you usually **author** the action
+timeline (a behaviour tree or a small LLM planner emitting text goals) rather than
+train an autonomous policy — so you often don't need (B) at all. If you do want
+physics-realistic autonomy, `protomotions`/`closd` are the (B) layer; the final
+render is SMPL→MetaHuman via UE5's IK Retargeter (mature, off-the-shelf).
 
-### 1. Convert the AMASS dataset to HumanML3D features
+## The one manual step: HumanML3D features (generator methods only)
 
-MDM trains on the HumanML3D 263-dim feature representation, not raw SMPL. The
-conversion is: SMPL params → 22 joint positions (SMPL forward kinematics) →
-HumanML3D features (`motion_representation`). It needs the SMPL body model
-(register at https://smpl.is.tue.mpg.de) and the HumanML3D repo.
+`momask`/`mdm`/`closd` train on the HumanML3D 263-d representation. Converting the
+AMASS npz to it is the single step this repo cannot run for you — it needs
+registration-gated assets and reproduces a normalization the pretrained
+checkpoints bake in, so an in-repo reimplementation would silently diverge.
+`protomotions` has **no** such step (it consumes the AMASS npz directly) — prefer
+it if you want the fully-automated path.
 
-`python -m motion_model prepare` (with a generator method + `humanml3d_repo` +
-`smpl_model` set in the config) lays out the parts that need no external assets
-(indexing, splits, caption scaffolding) and prints the exact HumanML3D
-feature-extraction hand-off for the rest — `raw_pose_processing` →
-`motion_representation` → `cal_mean_variance` (the last makes `Mean.npy`/`Std.npy`
-over *your* corpus). It needs the SMPL body model (register at
-https://smpl.is.tue.mpg.de) and the HumanML3D repo.
+Precise recipe (one-time), driven from a cloned `EricGuo5513/HumanML3D`:
+1. `pip install git+https://github.com/nghorbani/human_body_prior`; get the gated
+   **SMPL+H** model (`mano.is.tue.mpg.de`) and **DMPL** (`smpl.is.tue.mpg.de`).
+2. `raw_pose_processing`: SMPL-H forward pass on `poses[:, :66]` (+ the Y/Z
+   `trans_matrix` swap) → `(T, 22, 3)` joints. `mocap_framerate=20` means no
+   resampling. Segment/mirror cells are dataset-curation — skip them.
+3. `motion_representation`: `process_file(joints, 0.002)` → 263-d. Its
+   `tgt_offsets` is computed once from the KIT clip `000021` (baked into every
+   pretrained checkpoint) — reproduce it once and cache.
+4. **Use the checkpoint's shipped `Mean.npy`/`Std.npy`** when fine-tuning; only
+   recompute (`cal_mean_variance`, block-uniform per the 7 feature groups) if you
+   train from scratch.
 
-### 2. Fine-tune
+`prepare` lays out everything around this (splits, captions, amass copy) and
+prints the hand-off. Conditioning: `none` (style only), `action` (reuses
+Pipeline 1's `action_cluster` labels automatically), or `text` (fill `texts/`).
 
-`python -m motion_model train` shells out to the configured method's trainer.
-The trainer stages your prepared data where the upstream loader expects it
-(`<repo>/dataset/HumanML3D`) and builds the right command — MoMask's two-stage
-RVQ+transformer recipe, MDM's `--resume_checkpoint` full fine-tune, or LoRA-MDM's
-`--lora_finetune --starting_checkpoint`. Upstream-specific hyperparameters
-(diffusion steps, noise schedule, ...) go through `extra_args` in the config.
+## Model & training notes
 
-### 3. Conditioning choice
+- **Don't train >35M from scratch on hours of one person — it overfits.** Warm-start
+  from a pretrained checkpoint (`resume_checkpoint:`), then full fine-tune.
+- **Hands:** the data carries MANO hands, but HumanML3D's 263-d body features drop
+  them. Real hands need a whole-body representation (Motion-X + HumanTOMATO) — real
+  but immature; deferred. Nothing is lost by waiting.
+- **Moving/handheld footage:** prefer `backend: gvhmr` in Pipeline 1 (gravity-view,
+  least trajectory drift) and keep `refine`/`quality_filter` on, so HMR jitter
+  isn't learned as your style.
 
-Your footage has no text labels. Options, cheapest first (set `conditioning:` in
-the config):
+## Hardware (2× RTX 3090)
 
-1. **`none`** — learn "motion that looks like you." Simplest; pair with (B) to drive it.
-2. **`action`** — reuse Pipeline 1's unsupervised `action_cluster` ids as coarse
-   labels (walk, sit, cook, ...); `prepare` writes them as captions automatically.
-3. **`text`** — run a video captioner over each clip, fill `texts/<clip_id>.txt`,
-   and train the standard text-conditioned model. Most work, most controllable.
+Generator fine-tune: one 3090, hours. Physics (`protomotions`): fits 24 GB for
+state-based tracking (DDP across both cards, no NVLink); the real cost is Isaac
+Lab setup, budget 1–3 months. The compute sink is Pipeline 1 (HMR over the
+backlog), both cards in parallel.
 
-## Hands
+## Licence gate (paid use)
 
-Body-only HMR (GVHMR/WHAM/TRAM) does not recover fine hand articulation. If your
-clips need hands ("pick up an apple and eat it"), pick a hand-capable backend in
-Pipeline 1 — it's now a config line, not phase 2:
-- **Whole-body SMPL-X:** `backend: smplestx | whac | hand4whole | osx | multihmr`.
-- **Fusion:** `backend: fusion` with `body_backend` + `hand_backend`
-  (WiLoR/HaMeR) — grafts MANO fingers onto any body estimate.
-
-Those backends fill `left_hand_pose`/`right_hand_pose`, and the AMASS export
-writes them into the SMPL-H hand slots, so the dataset carries real fingers.
-
-To train a motion model that *uses* the hands, you need a **whole-body (SMPL-H
-or SMPL-X) motion representation**, not the 22-joint HumanML3D body features MDM
-uses by default — otherwise the finger channels are discarded at feature-
-extraction time. Options: extend the HumanML3D feature set to include hand
-joints, or train a whole-body motion diffusion model. That extension is the
-remaining phase-2 work on the model side; the *data* already has the hands.
-
-DanceHMR (the ideal single video-native whole-body+hands model) was withdrawn
-with no public code as of 2026-07 — watch for a re-release.
-
-## (B) The behavior layer — pointer
-
-Once (A) exists, "acts like me in a virtual environment" is a control problem:
-a policy that selects goals/actions and uses the motion generator (or a
-physics-based tracking controller like those in the PHC / PhysHOI / Ke line of
-work) to realize them. That's a separate project; this repo deliberately stops
-at producing a high-quality, personal motion generator it can build on.
+Framework code above is permissive (MIT/Apache-2.0), but the **SMPL/SMPL-H body
+models every method depends on are non-commercial by default** — a paid product
+needs a commercial SMPL licence from Meshcapade. That's yours to obtain; the
+`smpl_model:` path is your responsibility.

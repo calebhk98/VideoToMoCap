@@ -3,7 +3,7 @@
 Config-driven and method-selectable, mirroring Pipeline 1: choose the trainer
 with ``MotionModelConfig.method`` and everything else follows. Stays importable
 with only numpy + stdlib -- heavy training runs upstream, behind subprocess
-adapters. See README.md / ARCHITECTURE.md / NEXT_STEPS.md for the full picture.
+adapters. See README.md for methods, the data path, licensing, and hardware.
 """
 
 from __future__ import annotations

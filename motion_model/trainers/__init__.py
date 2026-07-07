@@ -5,7 +5,7 @@ orchestration layer never has to know which one is in use. Pick with
 ``MotionModelConfig.method`` -- swapping is one config line, exactly like
 Pipeline 1's ``backend``.
 
-Availability of the underlying code was verified 2026-07 (see ARCHITECTURE.md):
+Availability of the underlying code was verified 2026-07 (see README.md):
 
 Generators (train on HumanML3D 263-d features):
     momask -> https://github.com/EricGuo5513/momask-codes   (CVPR 2024, MIT)  [default pick]

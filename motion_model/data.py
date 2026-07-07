@@ -108,16 +108,16 @@ def humanml3d_handoff(cfg, out: Path) -> str:
             "  re-run `prepare`. The 263-d features cannot be produced without them.\n"
         )
     return (
-        "\nFeature extraction hand-off:\n"
-        f"  1. Copy {out/'amass_copy'}/*.npz into HumanML3D's AMASS input tree.\n"
-        f"  2. Run HumanML3D's raw_pose_processing + motion_representation ({hml})\n"
-        f"     with the SMPL model at {smpl} to write new_joint_vecs/*.npy (263-d).\n"
-        "  3. Run HumanML3D's cal_mean_variance to make Mean.npy / Std.npy OVER YOUR\n"
-        "     corpus (not the shipped stats) and place them beside new_joint_vecs.\n"
+        "\nFeature extraction hand-off (the one asset-gated step; see motion_model/README.md):\n"
+        f"  1. In {hml}, run raw_pose_processing on {out/'amass_copy'}/*.npz with the\n"
+        f"     SMPL+H model at {smpl} (needs human_body_prior) -> (T,22,3) joints.\n"
+        "  2. Run motion_representation's process_file -> new_joint_vecs/*.npy (263-d);\n"
+        "     its tgt_offsets is the one-time KIT-000021 reference baked into checkpoints.\n"
+        "  3. Fine-tuning? Use the checkpoint's SHIPPED Mean.npy/Std.npy (only recompute\n"
+        "     via cal_mean_variance if training from scratch).\n"
         f"  4. Point the trainer's data dir at {out}.\n"
-        "  Gotchas: export at 20 fps; HumanML3D has no 'neutral' gender branch (falls\n"
-        "  through to female -- harmless after uniform_skeleton); run quality_filter/\n"
-        "  refine in Pipeline 1 first so HMR jitter isn't learned as your style.\n"
+        "  (Or use method: protomotions, which needs none of this -- it consumes the\n"
+        "  AMASS npz directly.)\n"
     )
 
 

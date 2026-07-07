@@ -7,7 +7,7 @@ MDM-lineage, YOUR personal generator is the right thing to retrain into the
 planner slot -- but it is not a config swap: you retrain DiP on your data (in
 HumanML3D 263-d), while the identity-agnostic PHC tracker is reused.
 
-Sharp edges (see ARCHITECTURE.md): the repo is dormant, Isaac-Gym-only (deprecated),
+Sharp edges (see README.md): the repo is dormant, Isaac-Gym-only (deprecated),
 and its closed-loop training stage wants ~50 GB VRAM (exceeds one 24 GB card).
 Prefer ProtoMotions unless you specifically want your own generator in the loop.
 """

@@ -75,7 +75,7 @@ class MotionModelConfig:
 
     resume_checkpoint: Optional[Path] = None
     """Pretrained prior to WARM-START from, then full fine-tune. Do not train a
-    >35M model from scratch on hours of one person -- it overfits. See ARCHITECTURE.md."""
+    >35M model from scratch on hours of one person -- it overfits. See README.md."""
 
     # --- Generator training (momask / mdm) ------------------------------
     conditioning: str = "none"
