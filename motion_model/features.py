@@ -3,10 +3,11 @@
 Turns the old manual notebook hand-off into an offline, scriptable step by
 orchestrating VERIFIED upstream code -- we do not reimplement the feature math:
 
-  FK:   poses[:, :66] + neutral body -> (T, 22, 3) joints, via ``human_body_prior``
-        and the one-time registration-gated SMPL-H **neutral** model. No DMPL, no
-        gender split -- betas are already zeroed, so neutral is both sufficient and
-        correct for this privacy-preserving pipeline.
+  FK:   poses[:, :66] + neutral body -> (T, 22, 3) joints, via ``human_body_prior``.
+        Only the 22 BODY joints are kept, and those depend only on root_orient +
+        body_pose -- so any neutral SMPL-family model works: reuse the SMPL-H OR
+        SMPL-X the HMR backend already required, no *separate* registration. No
+        DMPL, no gender split (betas are zeroed, so neutral is correct here).
   263:  those joints -> Mathux/TMR's ``joints_to_guofeats`` (github.com/Mathux/TMR),
         which is byte-identical to official HumanML3D AND ships its own reference
         skeleton, so the gated AMASS clip 000021 is no longer needed.
@@ -48,9 +49,11 @@ def fk(npz_path):
     d = np.load(npz_path)
     p, t = d["poses"], d["trans"]; n = len(t)
     with torch.no_grad():
+        # No pose_hand: we keep only the 22 body joints, which hands never affect,
+        # so this FK works with a neutral SMPL-H *or* SMPL-X model (reuse the one
+        # the HMR backend already needed -- no separate registration).
         b = bm(root_orient=torch.Tensor(p[:, :3]), pose_body=torch.Tensor(p[:, 3:66]),
-               pose_hand=torch.Tensor(p[:, 66:]), trans=torch.Tensor(t),
-               betas=torch.zeros(n, 10))
+               trans=torch.Tensor(t), betas=torch.zeros(n, 10))
     joints = np.dot(b.Jtr.detach().cpu().numpy(), TRANS)[:, :22]   # HumanML3D ./joints convention
     joints[..., 0] *= -1                                           # TMR: make the swap a proper rotation
     return joints

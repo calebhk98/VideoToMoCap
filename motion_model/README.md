@@ -38,31 +38,20 @@ train an autonomous policy — so you often don't need (B) at all. If you do wan
 physics-realistic autonomy, `protomotions`/`closd` are the (B) layer; the final
 render is SMPL→MetaHuman via UE5's IK Retargeter (mature, off-the-shelf).
 
-## The one manual step: HumanML3D features (generator methods only)
+## HumanML3D features (generator methods) — automated & offline
 
-`momask`/`mdm`/`closd` train on the HumanML3D 263-d representation. Converting the
-AMASS npz to it is the single step this repo cannot run for you — it needs
-registration-gated assets and reproduces a normalization the pretrained
-checkpoints bake in, so an in-repo reimplementation would silently diverge.
-`protomotions` has **no** such step (it consumes the AMASS npz directly) — prefer
-it if you want the fully-automated path.
+`momask`/`mdm`/`closd` train on the HumanML3D 263-d representation. `prepare`
+extracts it **automatically** when `tmr_repo` + `smpl_model` are set: a forward
+pass (`human_body_prior`) gets the 22 joints, then `Mathux/TMR`'s
+`joints_to_guofeats` (byte-exact HumanML3D, ships its own reference skeleton) makes
+the 263-d vector — offline, no notebooks, no gated AMASS clip. `setup` clones TMR
+and installs the deps. `protomotions` skips this entirely (consumes the AMASS npz).
 
-Precise recipe (one-time), driven from a cloned `EricGuo5513/HumanML3D`:
-1. `pip install git+https://github.com/nghorbani/human_body_prior`; get the gated
-   **SMPL+H** model (`mano.is.tue.mpg.de`) and **DMPL** (`smpl.is.tue.mpg.de`).
-2. `raw_pose_processing`: SMPL-H forward pass on `poses[:, :66]` (+ the Y/Z
-   `trans_matrix` swap) → `(T, 22, 3)` joints. `mocap_framerate=20` means no
-   resampling. Segment/mirror cells are dataset-curation — skip them.
-3. `motion_representation`: `process_file(joints, 0.002)` → 263-d. Its
-   `tgt_offsets` is computed once from the KIT clip `000021` (baked into every
-   pretrained checkpoint) — reproduce it once and cache.
-4. **Use the checkpoint's shipped `Mean.npy`/`Std.npy`** when fine-tuning; only
-   recompute (`cal_mean_variance`, block-uniform per the 7 feature groups) if you
-   train from scratch.
-
-`prepare` lays out everything around this (splits, captions, amass copy) and
-prints the hand-off. Conditioning: `none` (style only), `action` (reuses
-Pipeline 1's `action_cluster` labels automatically), or `text` (fill `texts/`).
+Body model: only the 22 body joints are used, so a neutral **SMPL-H or SMPL-X**
+works — reuse the one your HMR backend already required (no second registration).
+When fine-tuning, use the pretrained checkpoint's shipped `Mean.npy`/`Std.npy`
+(not corpus stats). Conditioning: `none` (style), `action` (reuses Pipeline 1's
+`action_cluster` labels automatically), or `text` (fill `texts/`).
 
 ## Model & training notes
 
@@ -82,9 +71,12 @@ state-based tracking (DDP across both cards, no NVLink); the real cost is Isaac
 Lab setup, budget 1–3 months. The compute sink is Pipeline 1 (HMR over the
 backlog), both cards in parallel.
 
-## Licence gate (paid use)
+## Body-model registration & licence
 
-Framework code above is permissive (MIT/Apache-2.0), but the **SMPL/SMPL-H body
-models every method depends on are non-commercial by default** — a paid product
-needs a commercial SMPL licence from Meshcapade. That's yours to obtain; the
-`smpl_model:` path is your responsibility.
+There is no clean zero-account path: every FK-compatible body model
+(SMPL/SMPL-H/SMPL-X/STAR/SUPR) is MPI-licensed with a no-redistribution clause,
+and the HMR backends require one just to run. The honest floor is **one free MPI
+academic registration** (~2 min) — the feature step reuses that same model, so you
+don't register twice. Un-gated mirrors exist but violate the licence; this repo
+doesn't script them. For **paid** output you additionally need a commercial SMPL
+licence from Meshcapade — that's yours to obtain.

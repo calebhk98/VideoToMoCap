@@ -42,18 +42,26 @@ docker compose run --rm --network none pipeline all
 If a stage errors under `--network none`, something wasn't pre-cached during setup
 — re-run `setup` for that component.
 
-## Gated: the SMPL body models (one academic registration)
+## Gated: the SMPL body model (one academic registration — unavoidable)
 
-The SMPL family is the only license-gated piece. Register once at
-mano.is.tue.mpg.de, then **`setup` downloads it for you** using your own
-credentials — set `MANO_USERNAME` / `MANO_PASSWORD` (env or compose) and it POSTs
-to MPI's download backend (the same mechanism ICON/PIXIE/WHAM/ARCTIC use) and
-extracts `./models/smplh/neutral/model.npz`. No creds set → it prints the manual
-step instead. What each stage needs:
+The SMPL family is the only license-gated piece, and there is **no clean
+zero-account path**: every FK-compatible body model (SMPL/SMPL-H/SMPL-X/STAR/SUPR)
+is MPI-licensed with a no-redistribution clause, and the HMR backends require it
+just to run — not only the feature step. Un-gated Hugging Face mirrors exist
+(e.g. `camenduru/SMPLer-X`, `lithiumice/models_hub`) and work technically, but
+they violate that license, so this repo does not script them.
 
-- **Generators** (momask/mdm/closd): the **neutral SMPL-H** — auto-downloaded as above.
-- **HMR backend / ProtoMotions**: their own SMPL / SMPL-X (same registration).
-- **protomotions** as the *model*: needs no feature-step SMPL at all.
+The honest floor is **one free MPI academic registration** (~2 min, no purchase):
+
+- The feature step reuses the **same** neutral model your HMR backend already
+  needed (SMPL-H *or* SMPL-X — only the 22 body joints are used), so you don't
+  register twice. Point `smpl_model` at it.
+- If you go the SMPL-H route explicitly, `setup` can download it for you: set
+  `MANO_USERNAME` / `MANO_PASSWORD` (env or compose) and it POSTs to MPI's backend
+  (the mechanism ICON/PIXIE/WHAM/ARCTIC use) and extracts
+  `./models/smplh/neutral/model.npz`. No creds → it prints the manual step.
+- **protomotions** as the *model* needs no feature-step SMPL, but still needs a
+  body model for the sim humanoid.
 
 ## CPU-only smoke test (no GPU)
 

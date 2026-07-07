@@ -75,9 +75,11 @@ class MotionModelConfig:
     offline feature path now. Only used in the printed hand-off when TMR is unset."""
 
     smpl_model: Optional[Path] = None
-    """SMPL / SMPL-H body-model directory (feature extraction and physics sim).
-    Registration-gated (see README); a *commercial* SMPL licence is required for
-    paid output -- the pipeline cannot grant it, so this is your responsibility."""
+    """Neutral SMPL-family body model for the feature-step FK. SMPL-H *or* SMPL-X
+    works (only the 22 body joints are used), so point this at the model your HMR
+    backend already required -- no separate registration. Registration-gated (one
+    free MPI academic sign-up); a *commercial* SMPL licence is required for paid
+    output -- the pipeline cannot grant it, so that's your responsibility."""
 
     resume_checkpoint: Optional[Path] = None
     """Pretrained prior to WARM-START from, then full fine-tune. Do not train a
