@@ -33,6 +33,8 @@ FAILED = "failed"
 
 @dataclass
 class Clip:
+    """One tracked footage file plus its position in the processing state machine."""
+
     clip_id: str
     """Stable id derived from the relative path (safe for filenames)."""
     camera: str
@@ -44,16 +46,25 @@ class Clip:
     note: Optional[str] = None
 
     def is_processable(self) -> bool:
+        """True if HMR should (re)run on this clip: pending, or previously failed."""
         return self.status in (PENDING, FAILED)
 
 
 @dataclass
 class Manifest:
+    """The on-disk source of truth: every discovered clip and its status.
+
+    Nothing about the footage itself is copied here -- only bookkeeping -- so the
+    manifest is cheap to rewrite after every clip (see :meth:`save`).
+    """
+
     footage_root: str
     clips: List[Clip] = field(default_factory=list)
 
     # -- persistence ----------------------------------------------------
     def save(self, path: Path) -> None:
+        """Write to ``path``, replacing it atomically so a crash mid-write can
+        never leave a corrupt/partial manifest for the next run to load."""
         path.parent.mkdir(parents=True, exist_ok=True)
         payload = {"footage_root": self.footage_root, "clips": [asdict(c) for c in self.clips]}
         tmp = path.with_suffix(path.suffix + ".tmp")
@@ -62,21 +73,25 @@ class Manifest:
 
     @classmethod
     def load(cls, path: Path) -> "Manifest":
+        """Load a manifest previously written by :meth:`save`."""
         payload = json.loads(Path(path).read_text())
         clips = [Clip(**c) for c in payload["clips"]]
         return cls(footage_root=payload["footage_root"], clips=clips)
 
     # -- queries --------------------------------------------------------
     def by_status(self, *statuses: str) -> List[Clip]:
+        """Return clips whose status is any of ``statuses``."""
         return [c for c in self.clips if c.status in statuses]
 
     def get(self, clip_id: str) -> Clip:
+        """Look up a clip by id; raises ``KeyError`` if it isn't in the manifest."""
         for c in self.clips:
             if c.clip_id == clip_id:
                 return c
         raise KeyError(clip_id)
 
     def counts(self) -> Dict[str, int]:
+        """Tally clips per status, e.g. for the CLI ``status`` command."""
         out: Dict[str, int] = {}
         for c in self.clips:
             out[c.status] = out.get(c.status, 0) + 1
@@ -92,6 +107,11 @@ def _clip_id(rel_path: str) -> str:
 
 
 def _camera_of(rel_path: Path, depth: int) -> str:
+    """Camera id = the first ``depth`` path components (e.g. depth=1 -> 'cam03').
+
+    Falls back to a single shared 'cam' bucket when the tree is too flat to
+    slice, so a camera-less layout doesn't raise.
+    """
     parts = rel_path.parts
     if depth <= 0 or len(parts) <= 1:
         return "cam"

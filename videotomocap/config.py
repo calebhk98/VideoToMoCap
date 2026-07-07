@@ -18,11 +18,15 @@ DEFAULT_VIDEO_EXTS = (".mp4", ".mov", ".mkv", ".avi", ".m4v", ".ts")
 
 @dataclass
 class PipelineConfig:
+    """All tunable knobs for the pipeline, plain enough to build in code or load from YAML."""
+
     # --- Ingestion -------------------------------------------------------
     footage_root: Path = Path("footage")
     """Root directory holding one sub-directory per camera (or arbitrary tree)."""
 
     video_exts: tuple = DEFAULT_VIDEO_EXTS
+    """File extensions treated as candidate footage during ``scan`` (case-insensitive)."""
+
     camera_dir_depth: int = 1
     """How many path components below ``footage_root`` name the camera. With a
     layout of ``footage/cam03/2024-05-01/clip.mp4`` a depth of 1 -> camera 'cam03'."""
@@ -47,6 +51,7 @@ class PipelineConfig:
     """Camera ids known to be fixed/static -> skip visual odometry (GVHMR ``-s``)."""
 
     backend_extra_args: List[str] = field(default_factory=list)
+    """Extra argv tokens appended verbatim to the backend's demo command."""
 
     # --- Fusion backend (body + dedicated hand estimator) ---------------
     body_backend: str = "gvhmr"
@@ -78,11 +83,18 @@ class PipelineConfig:
 
     # --- Dataset ---------------------------------------------------------
     target_fps: float = 30.0
+    """Frame rate every clip is resampled to before anonymization/export, so the
+    exported dataset has a uniform rate regardless of source camera fps."""
+
     min_clip_frames: int = 30
     """Drop motion snippets shorter than this after HMR (too short to be useful)."""
 
     val_fraction: float = 0.05
+    """Fraction of *clips* (not frames) held out for validation -- split by clip id
+    to avoid frame leakage between train/val."""
+
     gender: str = "neutral"
+    """SMPL body gender label written into every exported AMASS npz."""
 
     def __post_init__(self) -> None:
         self.footage_root = Path(self.footage_root)
@@ -97,21 +109,26 @@ class PipelineConfig:
     # Convenience paths -------------------------------------------------
     @property
     def manifest_path(self) -> Path:
+        """Path to the manifest (the pipeline's single source of truth)."""
         return self.work_root / "manifest.json"
 
     @property
     def hmr_dir(self) -> Path:
+        """Scratch root for per-clip backend artifacts."""
         return self.work_root / "hmr"
 
     @property
     def pose_dir(self) -> Path:
+        """Where anonymized per-clip ``SmplMotion`` npz files are written."""
         return self.work_root / "pose"
 
     @property
     def dataset_dir(self) -> Path:
+        """Where the aggregated AMASS-format dataset is written."""
         return self.work_root / "dataset"
 
     def to_dict(self) -> Dict[str, Any]:
+        """Serialize to a plain (JSON/YAML-friendly) dict, stringifying Paths."""
         d = dataclasses.asdict(self)
         for k, v in d.items():
             if isinstance(v, Path):

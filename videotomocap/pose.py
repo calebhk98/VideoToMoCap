@@ -100,6 +100,7 @@ class SmplMotion:
 
     # -- persistence ----------------------------------------------------
     def save_npz(self, path) -> None:
+        """Write this clip to a single npz, hand slots included even when absent."""
         zeros_hand = np.zeros((self.n_frames, MANO_POSE_DIM), np.float32)
         np.savez(
             path,
@@ -119,6 +120,9 @@ class SmplMotion:
 
     @classmethod
     def load_npz(cls, path) -> "SmplMotion":
+        """Inverse of :meth:`save_npz`; ``has_left``/``has_right`` decide whether
+        the (possibly neutral-zero) stored hand block is restored or dropped to
+        ``None``, so a hand that was never estimated doesn't reappear as neutral."""
         d = np.load(path, allow_pickle=False)
         has_left = bool(d["has_left"]) if "has_left" in d else False
         has_right = bool(d["has_right"]) if "has_right" in d else False

@@ -47,6 +47,7 @@ def _load_or_scan(cfg: PipelineConfig) -> Manifest:
 
 
 def cmd_scan(args) -> int:
+    """Discover footage and (re)build the manifest, preserving existing state."""
     cfg = _cfg(args)
     if cfg.manifest_path.exists():
         manifest = ingest.refresh(cfg, Manifest.load(cfg.manifest_path))
@@ -61,6 +62,7 @@ def cmd_scan(args) -> int:
 
 
 def cmd_exclude(args) -> int:
+    """Exclude (or, with --undo, re-include) clips by id or glob pattern."""
     cfg = _cfg(args)
     manifest = _load_or_scan(cfg)
     fn = ingest.include if args.undo else ingest.exclude
@@ -72,6 +74,7 @@ def cmd_exclude(args) -> int:
 
 
 def cmd_status(args) -> int:
+    """Print clip-state counts and total recovered motion duration."""
     cfg = _cfg(args)
     manifest = _load_or_scan(cfg)
     counts = manifest.counts()
@@ -86,6 +89,7 @@ def cmd_status(args) -> int:
 
 
 def cmd_list(args) -> int:
+    """List clips (optionally filtered by status), one per line."""
     cfg = _cfg(args)
     manifest = _load_or_scan(cfg)
     for c in manifest.clips:
@@ -99,6 +103,7 @@ def cmd_list(args) -> int:
 
 
 def cmd_hmr(args) -> int:
+    """Run human-mesh recovery on pending/failed clips, then report status."""
     cfg = _cfg(args)
     manifest = _load_or_scan(cfg)
     pipeline.run_hmr(cfg, manifest, limit=args.limit)
@@ -107,6 +112,7 @@ def cmd_hmr(args) -> int:
 
 
 def cmd_build(args) -> int:
+    """Aggregate anonymized clips into the AMASS-format dataset."""
     cfg = _cfg(args)
     manifest = _load_or_scan(cfg)
     stats = pipeline.build(cfg, manifest)
@@ -116,6 +122,7 @@ def cmd_build(args) -> int:
 
 
 def cmd_run(args) -> int:
+    """Run HMR and build the dataset in one go."""
     cfg = _cfg(args)
     _load_or_scan(cfg)
     stats = pipeline.run_all(cfg, limit=args.limit)

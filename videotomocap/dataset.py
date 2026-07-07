@@ -59,12 +59,15 @@ def to_amass_npz(motion: SmplMotion, gender: str = "neutral") -> Dict[str, np.nd
 
 @dataclass
 class DatasetStats:
+    """Summary totals for a built dataset (written to ``stats.json``)."""
+
     n_clips: int
     n_frames: int
     total_seconds: float
     fps: float
 
     def as_dict(self) -> Dict:
+        """JSON-friendly view: rounded seconds/hours alongside the raw counts."""
         return {
             "n_clips": self.n_clips,
             "n_frames": self.n_frames,
