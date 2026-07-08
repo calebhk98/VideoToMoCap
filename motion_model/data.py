@@ -93,6 +93,9 @@ def _caption_for(clip: dict, conditioning: str) -> str:
         return f"{label}#{label.replace(' ', '/NOUN ')}/NUM#0.0#0.0\n"
     if conditioning == "text" and clip.get("caption"):
         return humanml3d_line(clip["caption"])
+    if conditioning == "person" and clip.get("person_id"):
+        # promptable "moves like <person>": the person label is the caption
+        return humanml3d_line(str(clip["person_id"]))
     return PLACEHOLDER_CAPTION
 
 

@@ -41,6 +41,13 @@ videotomocap/
   cluster.py      Unsupervised motion clusters -> action_cluster pseudo-labels.
   video.py        Optional raw-video pre-analysis (skip-empty, static-camera
                   detection). The one place the core touches pixels -> lazy cv2.
+  multiperson.py  Opt-in multi_person plumbing: MotionUnit (clip motion or one
+                  per-person track), consent gating, per-person dataset export.
+  identity.py     Cross-clip identity: cluster per-track betas -> person_id (the
+                  ONLY place body shape is retained, in the consent-gated store).
+  people.py       People registry + consent ledger (people.json) + audit log.
+  captioned_dataset.py  Bridge: slice motion at Pipeline 3's caption-segment spans
+                  -> text-to-motion dataset (track-aware + consent-gated).
   cli.py          `python -m videotomocap <cmd>`. Thin wrapper over the above.
   backends/
     base.py         HMRBackend ABC + rotation/SMPL conversion helpers (pure NumPy).
@@ -85,8 +92,16 @@ articulation into the SMPL-72 body block.
 ### Invariants — do not break these
 
 - **Privacy:** SMPL `betas` (body shape / identity) must never leave the
-  pipeline. `anonymize()` zeroes them; the self-test asserts it. Any new export
-  path must keep betas neutral.
+  pipeline in the **exported dataset**. `anonymize()` zeroes them before any pose
+  npz is written and `to_amass_npz` writes `betas = 0`; the self-tests assert it
+  for both the single- and multi-person paths. Any new export path must keep betas
+  neutral. *Nuance for `multi_person`:* body shape is retained in exactly one
+  consent-gated place — `work/identity/*.npz` — solely so cross-clip identity
+  clustering is re-runnable (participating implies biometric consent; see
+  `docs/MULTI_PERSON.md`). It never enters `work/pose/` or the dataset. Do not add
+  a betas-retaining path anywhere else, and never put a body-shape array in the
+  JSON manifest or the people registry (`person_id` is a label string, not a
+  biometric).
 - **Resumable:** state lives in the manifest on disk, checkpointed after every
   clip. One clip failing is recorded (`status=failed`) and skipped, never fatal.
 - **Core stays light:** only `numpy` (and optional `pyyaml`) may be imported at

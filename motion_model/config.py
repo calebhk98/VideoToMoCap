@@ -87,8 +87,11 @@ class MotionModelConfig:
 
     # --- Generator training (momask / mdm) ------------------------------
     conditioning: str = "none"
-    """'none' (unconditional style), 'text' (needs captions in texts/), or 'action'
-    (uses each clip's ``action_cluster`` label from Pipeline 1's index)."""
+    """'none' (unconditional style), 'text' (needs captions in texts/), 'action'
+    (uses each clip's ``action_cluster`` label), or 'person' (uses each clip's
+    ``person_id`` from Pipeline 1's multi-person export -> promptable 'moves like
+    <person>'). For a single person's model, point ``dataset_dir`` at that person's
+    ``dataset/by_person/<id>`` sub-dataset instead."""
 
     personalization: str = "full"
     """'full' fine-tune (what you asked for) or 'lora' (LoRA-MDM adapters, mdm only)."""
@@ -137,7 +140,7 @@ class MotionModelConfig:
             val = getattr(self, name)
             if val is not None:
                 setattr(self, name, Path(val))
-        self.conditioning = _one_of(self.conditioning, {"none", "text", "action"}, "conditioning")
+        self.conditioning = _one_of(self.conditioning, {"none", "text", "action", "person"}, "conditioning")
         self.personalization = _one_of(self.personalization, {"full", "lora"}, "personalization")
         self.simulator = _one_of(self.simulator, {"isaaclab", "isaacgym", "mujoco", "newton"}, "simulator")
         self.algorithm = _one_of(self.algorithm, set(PROTOMOTIONS_EXPERIMENTS), "algorithm")

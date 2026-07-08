@@ -32,6 +32,28 @@ FAILED = "failed"
 
 
 @dataclass
+class Track:
+    """One recovered person within a clip (multi_person mode).
+
+    In single-subject mode a clip has no tracks and its motion lives at
+    ``pose/<clip_id>.npz`` as before. In multi_person mode each person is a Track
+    with its own pose npz; ``person_id`` links the track to an entry in the people
+    registry (assigned by identity clustering / the operator), or is None until
+    assigned. Body shape for identity lives in the separate identity store, never
+    here."""
+
+    track_id: str
+    """Per-clip track label, e.g. 'p0' (order is arbitrary; not a person identity)."""
+    person_id: Optional[str] = None
+    """Registry person this track was assigned to; None = unassigned."""
+    n_frames: Optional[int] = None
+    pose_rel: Optional[str] = None
+    """Pose npz path relative to ``pose_dir`` (``<clip_id>__<track_id>.npz``)."""
+    suspected_mirrored: bool = False
+    mirrored: bool = False
+
+
+@dataclass
 class Clip:
     """One tracked footage file plus its position in the processing state machine."""
 
@@ -63,6 +85,9 @@ class Clip:
     """SMPL joint indices whose motion is HMR-inferred (out of frame), not
     observed -- derived from ``cfg.camera_occlusions`` / ``partial_body_cameras``.
     Use to filter or mask these joints downstream."""
+    tracks: List["Track"] = field(default_factory=list)
+    """Recovered people in this clip (multi_person mode). Empty = single-subject:
+    the clip's one motion lives at ``pose/<clip_id>.npz`` as before."""
 
     def is_processable(self) -> bool:
         """True if HMR should (re)run on this clip: pending, or previously failed."""
@@ -94,7 +119,7 @@ class Manifest:
     def load(cls, path: Path) -> "Manifest":
         """Load a manifest previously written by :meth:`save`."""
         payload = json.loads(Path(path).read_text())
-        clips = [Clip(**c) for c in payload["clips"]]
+        clips = [_clip_from_dict(c) for c in payload["clips"]]
         return cls(footage_root=payload["footage_root"], clips=clips)
 
     # -- queries --------------------------------------------------------
@@ -115,6 +140,16 @@ class Manifest:
         for c in self.clips:
             out[c.status] = out.get(c.status, 0) + 1
         return out
+
+
+def _clip_from_dict(c: dict) -> Clip:
+    """Rebuild a Clip (and its nested Tracks) from a manifest dict.
+
+    Tolerant of manifests written before ``tracks`` existed -- an old clip just
+    loads with an empty track list (single-subject), so upgrading needs no migration.
+    """
+    tracks = [Track(**t) for t in c.pop("tracks", [])]
+    return Clip(tracks=tracks, **c)
 
 
 def _clip_id(rel_path: str) -> str:

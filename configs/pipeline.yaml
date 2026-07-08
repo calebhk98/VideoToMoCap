@@ -79,3 +79,12 @@ target_fps: 30.0
 min_clip_frames: 30       # drop motion snippets shorter than 1 s
 val_fraction: 0.05
 gender: neutral
+
+# --- Multiple people (opt-in; see docs/MULTI_PERSON.md) --------------------
+# Recover EVERY person per clip, cluster into identities, gate on consent, and
+# export one dataset per person. Off = original single-subject behavior.
+multi_person: false        # true to enable (needs a multi-person-capable backend)
+person_assignment: shape   # shape (cluster betas) | manual | single
+max_people: 0              # expected distinct people; 0 = auto
+consent_required: true     # fail-closed: a track exports only if its person consented
+unassigned_policy: exclude # exclude | include (tracks with no assigned person)

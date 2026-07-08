@@ -57,6 +57,8 @@ def _cfg(args) -> PipelineConfig:
         cfg.footage_root = Path(args.footage_root)
     if getattr(args, "work_root", None):
         cfg.work_root = Path(args.work_root)
+    if getattr(args, "multi_person", False):
+        cfg.multi_person = True
     return cfg
 
 
@@ -174,6 +176,38 @@ def cmd_mirror(args) -> int:
     return 0
 
 
+def cmd_people(args) -> int:
+    """Manage the people registry + consent (multi_person). Actions:
+    list | assign (cluster tracks -> person_id) | grant | revoke."""
+    from . import identity, people
+
+    cfg = _cfg(args)
+    if args.action == "assign":
+        manifest = Manifest.load(cfg.manifest_path)
+        counts = identity.assign_people(cfg, manifest)
+        print("assigned tracks per person:")
+        print(json.dumps(counts, indent=2))
+        return 0
+    if args.action == "list":
+        registry = people.load_registry(cfg)
+        if not registry:
+            print("no people yet -- run `people assign` after `hmr` with multi_person on.")
+        for pid, rec in sorted(registry.items()):
+            granted = rec.get("consent", {}).get("granted")
+            print(f"  {pid:14s} {rec.get('display_name', ''):18s} consent={'granted' if granted else 'DENIED'}")
+        return 0
+    # grant / revoke
+    registry = people.load_registry(cfg)
+    ids = sorted(registry) if args.all else (args.id or [])
+    if not ids:
+        print("no person ids -- pass --id <id> (repeatable) or --all")
+        return 1
+    for pid in ids:
+        people.set_consent(cfg, pid, granted=(args.action == "grant"))
+    print(f"{args.action}ed consent for {len(ids)} people; audit -> {cfg.consent_log_path}")
+    return 0
+
+
 def cmd_build(args) -> int:
     """Aggregate anonymized clips into the AMASS-format dataset."""
     cfg = _cfg(args)
@@ -247,6 +281,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="clips per GPU: an int, or 'auto' to size from free VRAM")
         sp.add_argument("--vram-per-worker-mb", dest="vram_per_worker_mb", type=int,
                         help="VRAM/clip estimate (MiB) for auto sizing; skips calibration")
+        sp.add_argument("--multi-person", dest="multi_person", action="store_true",
+                        help="recover every person per clip (needs a multi-person backend)")
         sp.set_defaults(func=fn)
 
     mr = sub.add_parser("mirror", help="detect (--correct to fix) left/right-mirrored clips")
@@ -254,6 +290,13 @@ def build_parser() -> argparse.ArgumentParser:
     mr.set_defaults(func=cmd_mirror)
 
     sub.add_parser("build", help="aggregate anonymized clips into an AMASS dataset").set_defaults(func=cmd_build)
+
+    pp = sub.add_parser("people", help="manage people + consent (multi_person)")
+    pp.add_argument("action", choices=["list", "assign", "grant", "revoke"],
+                    help="list; assign (cluster tracks->person_id); grant/revoke consent")
+    pp.add_argument("--id", action="append", help="person id (repeatable)")
+    pp.add_argument("--all", action="store_true", help="apply to all registered people")
+    pp.set_defaults(func=cmd_people)
 
     cd = sub.add_parser("caption-dataset",
                         help="pair Pipeline 3 captions with motion -> text-to-motion dataset")

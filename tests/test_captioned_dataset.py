@@ -156,6 +156,55 @@ def test_captions_flow_into_motion_model_text_conditioning():
         assert caption_file.read_text().startswith("a person cooking#")   # real caption, not placeholder
 
 
+def _setup_multiperson(tmp: Path, grant=("dad",)):
+    """Pipeline-1 side with two per-person tracks + a consent registry, plus captions."""
+    from videotomocap import people
+    from videotomocap.config import PipelineConfig
+    from videotomocap.ingest import Clip, Manifest as P1Manifest, Track, POSE_DONE
+
+    work = tmp / "work"
+    pose = work / "pose"
+    pose.mkdir(parents=True)
+    vid = "clip_dead"
+    for tid, pid in (("p0", "dad"), ("p1", "mom")):
+        _make_motion().save_npz(pose / f"{vid}__{tid}.npz")
+    clip = Clip(clip_id=vid, camera="cam", rel_path="a/clip.mp4", status=POSE_DONE,
+                tracks=[Track("p0", person_id="dad", pose_rel=f"{vid}__p0.npz"),
+                        Track("p1", person_id="mom", pose_rel=f"{vid}__p1.npz")])
+    P1Manifest(footage_root="x", clips=[clip]).save(work / "manifest.json")
+    p1cfg = PipelineConfig(work_root=work)
+    for pid in grant:
+        people.set_consent(p1cfg, pid, granted=True)  # others stay fail-closed
+
+    ccfg = CaptionConfig(work_root=work / "caption")
+    _seed_caption_store(ccfg, vid, "a/clip.mp4", spans=[(0, 3), (3, 6)],
+                        descriptions=["two people cooking", "two people eating"])
+    from videocaption import manifest as vmf
+    vmf.Manifest(footage_root="x", videos=[vmf.Video(vid, "a/clip.mp4", status=vmf.DONE)]).save(ccfg.manifest_path)
+    return pose, ccfg.work_root
+
+
+def test_bridge_multiperson_pairs_only_consenting_people():
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        pose_dir, caption_work = _setup_multiperson(tmp, grant=("dad",))  # mom denied
+        out = tmp / "ds"
+        stats = build_captioned_dataset(pose_dir, caption_work, out, min_frames=30, val_fraction=0.5)
+        index = json.loads((out / "index.json").read_text())["clips"]
+        assert {c["person_id"] for c in index} == {"dad"}          # mom gated out
+        assert all("__p0" in c["clip_id"] for c in index)          # dad's track suffix
+        assert stats["consent_skipped"] >= 1                       # mom's track counted as skipped
+
+
+def test_person_conditioning_writes_person_label():
+    from motion_model.data import _caption_for, humanml3d_line
+    line = _caption_for({"person_id": "dad"}, "person")
+    assert line == humanml3d_line("dad") and line.startswith("dad#")
+    # absent person_id -> placeholder, not a crash
+    from motion_model.data import PLACEHOLDER_CAPTION
+    assert _caption_for({}, "person") == PLACEHOLDER_CAPTION
+
+
 def _run_all():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

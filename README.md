@@ -198,6 +198,28 @@ Mechanics and honest limits:
   disjoint `--limit`/exclusions (or split the tree per machine); each writes its
   own pose npz, then run `build` once over the merged `work/pose`.
 
+## Multiple people (a whole family)
+
+Single-subject is the default. Set **`multi_person: true`** (or `hmr --multi-person`)
+to recover *every* person per clip, cluster them into identities by body shape,
+gate each on **consent**, and export one motion dataset per person — so everyone
+in a consenting household can get a model that moves like them.
+
+```bash
+python -m videotomocap hmr --multi-person     # recover everyone (needs a multi-person backend)
+python -m videotomocap people assign          # cluster tracks -> person_00, person_01, ...
+python -m videotomocap people grant --all     # consent is fail-closed: nothing exports without it
+python -m videotomocap build                  # per-person datasets in dataset/by_person/<id>/
+python scripts/multiperson_selftest.py        # GPU-free end-to-end
+```
+
+Identity is a project-local **label**, never a stored biometric; body shape is
+retained only in a consent-gated identity store and never enters the (still
+shape-neutral) exported dataset. Consenting to participate means consenting to
+biometric use — that's the whole premise, and it's enforced (fail-closed, audit
+log, real revocation). Full design, backends, and honest caveats:
+**[`docs/MULTI_PERSON.md`](docs/MULTI_PERSON.md)**.
+
 ## Optional processing
 
 All motion-derived tags below run automatically inside `run`/`build`, are pure
@@ -314,6 +336,9 @@ videotomocap/
   pose.py              SmplMotion container; anonymize() = drop shape, keep pose
   dataset.py           aggregate → AMASS-SMPL npz + train/val split + stats
   captioned_dataset.py bridge: slice motion at Pipeline 3's caption-segment spans → text-to-motion dataset
+  multiperson.py       opt-in multi_person plumbing (MotionUnit, consent gate, per-person export)
+  identity.py          cross-clip identity: cluster per-track betas → person_id (consent-gated store)
+  people.py            people registry + consent ledger + audit log
   pipeline.py          orchestration (scan→hmr→refine→anonymize→build), parallel+resumable
   gpu.py               GPU auto-detection + worker/device resolution
   regions.py           body regions → SMPL joints (occlusion tagging)
@@ -339,6 +364,7 @@ motion_model/          pipeline 2: MDM fine-tuning bridge, config, and docs
 videocaption/          pipeline 3: archive captioning + search index + Qwen2.5-VL LoRA bridge
 scripts/
   selftest.py          GPU-free end-to-end test of pipeline 1
+  multiperson_selftest.py  GPU-free end-to-end test of multi_person + consent
   caption_selftest.py  GPU-free end-to-end test of pipeline 3
   joycaption_infer.py  driver: per-frame captioning (JoyCaption via vLLM)
   dolphin_aggregate.py driver: frame captions → (description, tags) (Dolphin3.0)

@@ -20,6 +20,7 @@ them to your checkout in one place (mirrors how wham.py / tram.py are written).
 
 from __future__ import annotations
 
+import re
 from abc import abstractmethod
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -28,6 +29,34 @@ import numpy as np
 
 from ..pose import SmplMotion
 from .base import BackendError, HMRBackend, assemble_hand, assemble_smpl72
+
+
+def _frame_key(path: Path) -> str:
+    """The frame index embedded in a per-frame filename (first integer run)."""
+    m = re.search(r"\d+", path.stem)
+    return m.group(0) if m else path.stem
+
+
+def _guard_single_detection(name: str, frames: List[Path]) -> None:
+    """Refuse multi-person output that would be silently corrupted.
+
+    These per-frame backends assume ONE file per frame and stack files in order as
+    consecutive timesteps. Multi-person tools (e.g. Multi-HMR, camenduru SMPLer-X)
+    write one file *per detection*, so two people's files sort together and would
+    be stacked as if they were frames -- garbage motion, no error. Detect it (a
+    frame index appearing more than once) and fail loud instead. Per-frame track
+    assembly for these backends is not implemented; use a tracking body backend
+    with ``multi_person`` for multiple people.
+    """
+    keys = [_frame_key(f) for f in frames]
+    if len(set(keys)) < len(keys):
+        raise BackendError(
+            f"{name} produced multiple detections per frame ({len(frames)} files, "
+            f"{len(set(keys))} distinct frame indices) -- that is multi-person output. "
+            f"This backend stacks one file per frame and would silently corrupt it. "
+            f"Use a multi-person-capable tracking backend with multi_person, or "
+            f"single-subject footage."
+        )
 
 
 def _squeeze_leading(a: np.ndarray) -> np.ndarray:
@@ -64,6 +93,7 @@ class SmplXFramesBackend(HMRBackend):
         frames = sorted(out_dir.rglob(self.frame_glob))
         if not frames:
             raise BackendError(f"{self.name} produced no '{self.frame_glob}' files under {out_dir}")
+        _guard_single_detection(self.name, frames)  # fail loud on multi-person output
 
         dicts = [self._load_frame(f) for f in frames]
         return self._stack(dicts, video_path, out_dir)

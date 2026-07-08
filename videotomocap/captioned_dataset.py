@@ -16,6 +16,14 @@ identity path is introduced, and ``to_amass_npz`` keeps betas neutral regardless
 
 ``videocaption`` is imported lazily inside the builder so ``import videotomocap``
 stays numpy-only and never pulls the caption package in.
+
+Multi-person: when Pipeline 1 recovered several people per clip, each *consenting*
+person's motion snippet is paired with the segment caption and tagged with its
+``person_id`` (the seg id gets a ``__<track>`` suffix). Note the caption is still
+scene-level -- it describes the whole segment, not that specific person -- so a
+person may not have done what the caption says. Per-person grounded captioning
+(e.g. DAM-3B-Video / VideoRefer per track) is the follow-up that would make the
+pairing person-accurate; see docs/MULTI_PERSON.md.
 """
 
 from __future__ import annotations
@@ -60,8 +68,13 @@ def slice_motion(motion: SmplMotion, start: float, end: float) -> Optional[SmplM
     )
 
 
-def _emit_segment(motion, video, row, amass_dir: Path, min_frames: int, counters: Dict[str, int]) -> Optional[dict]:
-    """Slice + export one caption segment's motion snippet; return its index entry."""
+def _emit_segment(motion, video, row, amass_dir: Path, min_frames: int, counters: Dict[str, int],
+                  *, person_id=None, suffix: str = "") -> Optional[dict]:
+    """Slice + export one caption segment's motion snippet; return its index entry.
+
+    ``suffix``/``person_id`` distinguish per-person tracks in multi_person mode
+    (each person's motion snippet is paired with the same segment caption -- note
+    the caption is scene-level, not per-person attributed; see module docstring)."""
     snippet = slice_motion(motion, row.start, row.end)
     if snippet is None or snippet.n_frames < min_frames:
         counters["too_short"] += 1
@@ -72,10 +85,10 @@ def _emit_segment(motion, video, row, amass_dir: Path, min_frames: int, counters
         # camera-relative motion can't become world-frame AMASS; skip loudly-counted.
         counters["incam_skipped"] += 1
         return None
-    seg_id = f"{video.video_id}_seg{row.seg_index:04d}"
+    seg_id = f"{video.video_id}_seg{row.seg_index:04d}{suffix}"
     np.savez(amass_dir / f"{seg_id}.npz", **payload)
     counters["segments"] += 1
-    return {
+    entry = {
         "clip_id": seg_id,
         "n_frames": snippet.n_frames,
         "fps": snippet.fps,
@@ -85,6 +98,9 @@ def _emit_segment(motion, video, row, amass_dir: Path, min_frames: int, counters
         "start": row.start,
         "end": row.end,
     }
+    if person_id is not None:
+        entry["person_id"] = person_id
+    return entry
 
 
 def _split_by_source(entries: List[dict], val_fraction: float, seed: int) -> None:
@@ -150,22 +166,66 @@ def build_captioned_dataset(
     amass_dir = Path(out_dir) / "amass"
     amass_dir.mkdir(parents=True, exist_ok=True)
 
+    p1_clips, registry = _load_motion_side(pose_dir)
+
     entries: List[dict] = []
-    counters = {"with_motion": 0, "missing_motion": 0, "too_short": 0, "incam_skipped": 0, "segments": 0}
+    counters = {"with_motion": 0, "missing_motion": 0, "too_short": 0,
+                "incam_skipped": 0, "segments": 0, "consent_skipped": 0}
     for video in manifest.videos:
         rows = vstore.video_rows(ccfg, video)
         if not rows:
             continue
-        pose_path = pose_dir / f"{video.video_id}.npz"
-        if not pose_path.exists():
+        sources = _motion_sources(pose_dir, p1_clips, registry, video.video_id, counters)
+        if not sources:
             counters["missing_motion"] += 1
             continue
         counters["with_motion"] += 1
-        motion = SmplMotion.load_npz(pose_path)
-        for row in rows:
-            entry = _emit_segment(motion, video, row, amass_dir, min_frames, counters)
-            if entry is not None:
-                entries.append(entry)
+        for pose_path, person_id, suffix in sources:
+            motion = SmplMotion.load_npz(pose_path)
+            for row in rows:
+                entry = _emit_segment(motion, video, row, amass_dir, min_frames, counters,
+                                      person_id=person_id, suffix=suffix)
+                if entry is not None:
+                    entries.append(entry)
 
     _split_by_source(entries, val_fraction, seed)
     return _write_index_stats(entries, Path(out_dir), counters)
+
+
+def _load_motion_side(pose_dir: Path):
+    """Load Pipeline 1's manifest (for per-person tracks) + consent registry, if present.
+
+    Returns ({clip_id: Clip}, registry|None). Absent manifest -> single-subject:
+    each video pairs with its one ``pose/<id>.npz``, no consent gating.
+    """
+    manifest_path = pose_dir.parent / "manifest.json"
+    if not manifest_path.exists():
+        return {}, None
+    from . import people
+    from .config import PipelineConfig
+    from .ingest import Manifest as P1Manifest
+
+    clips = {c.clip_id: c for c in P1Manifest.load(manifest_path).clips}
+    has_tracks = any(c.tracks for c in clips.values())
+    registry = people.load_registry(PipelineConfig(work_root=pose_dir.parent)) if has_tracks else None
+    return clips, registry
+
+
+def _motion_sources(pose_dir: Path, p1_clips: dict, registry, video_id: str, counters: Dict[str, int]):
+    """Motion npz(s) to pair with a video's captions: per consenting person in
+    multi_person mode, else the single ``pose/<id>.npz``. Returns
+    [(pose_path, person_id, seg_suffix), ...]."""
+    clip = p1_clips.get(video_id)
+    if clip is not None and clip.tracks:
+        from . import people
+        out = []
+        for track in clip.tracks:
+            if registry is not None and not people.consent_ok(registry, track.person_id, "exclude"):
+                counters["consent_skipped"] += 1
+                continue
+            path = pose_dir / track.pose_rel if track.pose_rel else None
+            if path and path.exists():
+                out.append((path, track.person_id, f"__{track.track_id}"))
+        return out
+    single = pose_dir / f"{video_id}.npz"
+    return [(single, None, "")] if single.exists() else []
