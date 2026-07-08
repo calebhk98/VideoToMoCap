@@ -128,9 +128,17 @@ class PipelineConfig:
     Off by default -- turn on if your backend's output is jittery."""
 
     refine_method: str = "savgol"
-    """De-jitter method when ``refine`` is on: 'savgol' (fast local fit) or
+    """De-jitter method when ``refine`` is on: 'savgol' (fast uniform local fit),
     'variational' (global acceleration-penalized smoother -- the HTD-Refine
-    objective solved directly; stronger, slightly slower)."""
+    objective solved directly; stronger, slightly slower), or 'confidence'
+    (per-joint adaptive: smooths each joint in proportion to its own local jitter,
+    so inferred/occluded joints get denoised hard while clean ones stay sharp)."""
+
+    confidence_kappa: float = 0.02
+    """For ``refine_method: confidence`` -- the per-joint acceleration (rad/frame^2)
+    at which a joint receives half its maximum smoothing. Lower = smooth more
+    aggressively (more joints treated as noisy); higher = only the jerkiest joints
+    are touched. Ignored by the other refine methods."""
 
     auto_mirror: str = "off"
     """Automatic left/right-mirror handling for flipped (e.g. selfie) footage,

@@ -17,6 +17,7 @@ from videotomocap.refine import (
     _savgol_coeffs,
     _segments_from_mask,
     anti_drift_stationary,
+    confidence_dejitter,
     detect_stationary_frames,
     jitter_metric,
     refine_motion,
@@ -264,6 +265,49 @@ def test_refine_motion_method_variational_and_rejects_bad():
     out = refine_motion(m, method="variational", anti_drift=False)
     assert out.meta["dejitter"] == "variational" and out.meta["refined"] is True
     assert_raises(ValueError, lambda: refine_motion(m, method="bogus"))
+
+
+def _clean_plus_one_noisy_joint(n=60, noisy=5, seed=3):
+    """A motion where one joint (index `noisy`) is heavily jittered and every
+    other joint ramps cleanly -- the setup that separates adaptive from uniform."""
+    rng = np.random.default_rng(seed)
+    t = np.arange(n, dtype=np.float32)
+    poses = (0.01 * t)[:, None] * np.ones((1, 72), np.float32)
+    poses[:, noisy * 3:noisy * 3 + 3] += rng.normal(0, 0.3, size=(n, 3)).astype(np.float32)
+    return SmplMotion(poses=poses.astype(np.float32),
+                      trans=(0.02 * t)[:, None] * np.ones((1, 3), np.float32), fps=30.0)
+
+
+def test_confidence_dejitter_smooths_noisy_joint_more_than_clean():
+    noisy = 5
+    m = _clean_plus_one_noisy_joint(noisy=noisy)
+    out = confidence_dejitter(m, kappa=0.02)
+
+    def joint_change(a, b, j):
+        return float(np.abs(a[:, j * 3:j * 3 + 3] - b[:, j * 3:j * 3 + 3]).mean())
+
+    moved_noisy = joint_change(m.poses, out.poses, noisy)
+    moved_clean = joint_change(m.poses, out.poses, 10)  # an untouched clean joint
+    # the jittery joint is pulled toward its fit; the clean one is left alone
+    assert moved_noisy > 10 * moved_clean
+    assert jitter_metric(out.poses[:, noisy * 3:noisy * 3 + 3]) < jitter_metric(m.poses[:, noisy * 3:noisy * 3 + 3])
+    assert out.meta["dejitter"] == "confidence"
+
+
+def test_confidence_dejitter_noop_and_hands():
+    short = _body(5, seed=1)   # <= default window → returned unchanged
+    assert np.array_equal(confidence_dejitter(short).poses, short.poses)
+    m = _body(40, seed=1, hands=True)
+    off = confidence_dejitter(m, smooth_hands=False)
+    assert np.array_equal(off.left_hand_pose, m.left_hand_pose)
+    on = confidence_dejitter(m, smooth_hands=True)
+    assert on.left_hand_pose.shape == m.left_hand_pose.shape
+
+
+def test_refine_motion_method_confidence():
+    m = _clean_plus_one_noisy_joint()
+    out = refine_motion(m, method="confidence", anti_drift=False)
+    assert out.meta["dejitter"] == "confidence" and out.meta["refined"] is True
 
 
 def _run_all():

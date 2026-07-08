@@ -108,7 +108,7 @@ def _compute_and_save(cfg: PipelineConfig, clip: Clip) -> int:
     motion = resample_fps(motion, cfg.target_fps)
     if cfg.refine:
         from .refine import refine_motion  # optional post-processing; keep import lazy
-        motion = refine_motion(motion, method=cfg.refine_method)
+        motion = refine_motion(motion, method=cfg.refine_method, kappa=cfg.confidence_kappa)
     anon = anonymize(motion, drop_shape=cfg.drop_shape, keep_translation=cfg.keep_translation)
     anon.joint_valid = _joint_valid_mask(cfg, clip, anon)  # label unreliable joints (if any)
 

@@ -193,8 +193,11 @@ All motion-derived tags below run automatically inside `run`/`build`, are pure
 NumPy (no weights, no GPU), and default to non-destructive `flag` unless noted.
 
 - **`refine`** (default off) — post-HMR cleanup: temporal de-jitter + stationary
-  anti-drift. `refine_method` is `savgol` (fast local fit) or `variational` (a
-  global smoother minimizing `‖x−y‖² + λ‖accel(x)‖²`). See `videotomocap/refine.py`.
+  anti-drift. `refine_method` is `savgol` (fast uniform local fit), `variational`
+  (global smoother minimizing `‖x−y‖² + λ‖accel(x)‖²`), or `confidence` (per-joint
+  adaptive: smooths each joint in proportion to its own local jitter — denoises
+  inferred/occluded joints hard while leaving cleanly-tracked ones sharp; knee set
+  by `confidence_kappa`). See `videotomocap/refine.py`.
 - **`auto_mirror`** (`off`/`flag`/`correct`) — some clips (front-camera selfies)
   are horizontally flipped, corrupting handedness. There's no metadata flag and a
   mirrored person still looks valid, so the pipeline scores each clip's handedness
