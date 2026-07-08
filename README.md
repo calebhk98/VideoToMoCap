@@ -4,8 +4,9 @@ Turn a large backlog of personal camera footage into an anonymized, AMASS-format
 motion dataset — and from there into a motion model that moves like the person in
 the video.
 
-The project is **two pipelines**; this repo builds the first end-to-end and
-scaffolds the second:
+The project is **three pipelines**; this repo builds the first end-to-end,
+scaffolds the second, and adds an independent captioning/search pipeline over the
+same footage:
 
 1. **Data pipeline — video → anonymized motion data** (`videotomocap/`).
    Recover human motion from footage, strip body identity (drop SMPL `betas`),
@@ -13,10 +14,17 @@ scaffolds the second:
 2. **Motion model — data → an agent that moves like you** (`motion_model/`).
    Fine-tune a small motion-diffusion model on that dataset. Bridged and
    documented; the heavy training runs in the upstream MDM repo.
+3. **Archive captioning & search — video → searchable captions → a video-native
+   captioner** (`videocaption/`). Segment, caption per-frame (JoyCaption), and
+   aggregate into a `(description, tags)` search index; then LoRA-fine-tune
+   Qwen2.5-VL on those labels so it captions a whole clip in one pass. Its light
+   layer is fully built (stdlib-only, GPU-free tests); the models are bridged.
+   See [`videocaption/README.md`](videocaption/README.md).
 
-Everything except the two neural stages (HMR inference, motion-model training) is
-plain NumPy and runs on a laptop. Those stages shell out to upstream research
-tools behind clean adapters, so the core imports and tests with no GPU.
+Everything except the neural stages (HMR inference, motion-model training, the
+caption VLMs) is plain NumPy/stdlib and runs on a laptop. Those stages shell out
+to upstream research tools behind clean adapters, so the core imports and tests
+with no GPU.
 
 ## Quickstart
 
@@ -325,11 +333,15 @@ videotomocap/
     fusion.py          body + hand net (WiLoR/HaMeR) → SMPL-X with real hands
     noop.py            synthetic backend (no GPU) for tests/dry-runs
 motion_model/          pipeline 2: MDM fine-tuning bridge, config, and docs
+videocaption/          pipeline 3: archive captioning + search index + Qwen2.5-VL LoRA bridge
 scripts/
   selftest.py          GPU-free end-to-end test of pipeline 1
+  caption_selftest.py  GPU-free end-to-end test of pipeline 3
+  joycaption_infer.py  driver: per-frame captioning (JoyCaption via vLLM)
+  dolphin_aggregate.py driver: frame captions → (description, tags) (Dolphin3.0)
   check_code_health.py commit-time size/indentation gate
   install_hooks.sh     enable the pre-commit hook
-tests/                 unit tests (rotation math, hands/fusion, config/ingest/CLI/parallel)
+tests/                 unit tests (rotation math, hands/fusion, config/ingest/CLI/parallel, captioning)
 configs/               example + dropzone + fusion configs
 dropzone/              drop your videos here
 RESEARCH_WATCHLIST.md  breaking papers with no usable code yet (what to watch)

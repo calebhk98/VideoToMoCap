@@ -10,3 +10,10 @@ pyyaml>=5.4        # only needed for load_config(); code paths work without it
 # their own heavy environments (torch, CUDA, SMPL/SMPL-X body models, SLAM deps).
 # Install those from the upstream repos into dedicated envs; do NOT mix them into
 # this one. See README.md "Installing a backend".
+
+# Pipeline 3 (videocaption) core is stdlib-only (needs neither numpy nor pyyaml,
+# except pyyaml for load_config). Its optional pieces are lazy and off the tested
+# path: `pip install scenedetect opencv-python` for Step 1 segmentation, ffmpeg on
+# PATH (or `pip install decord pillow`) for Step 2 frames, and the JoyCaption /
+# Dolphin / Qwen2.5-VL models in their own vLLM/transformers envs (see
+# videocaption/README.md). None are needed for the GPU-free self-test.
