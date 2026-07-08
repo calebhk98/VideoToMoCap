@@ -53,6 +53,7 @@ work; the whole-body SMPL-X and `fusion` families recover articulated hands.
 | `whac` | whole-body SMPL-X | ✓ | **moving-camera + world-grounded** with hands |
 | `hand4whole` | whole-body SMPL-X | ✓✓ | CVPR 2026, MIT, best single-model hands |
 | `osx` `multihmr` | whole-body SMPL-X | ✓ | MIT / fast alternatives |
+| `sam3dbody` (a.k.a. `sam3d`) | whole-body SMPL-X | ✓ | [Meta SAM 3D Body](https://github.com/facebookresearch/sam-3d-body) foundation model → SMPL-X via MHR fit (heavy; SAM License) |
 | `fusion` | body + hand net | ✓✓ | any body backend **+ WiLoR/HaMeR** fingers |
 
 Body-only methods under-recover fingers ("pick up an apple and eat it" comes out
@@ -301,6 +302,7 @@ videotomocap/
     trace.py           body-only world-grounded TRACE (simple-romp; Apache-2.0)
     fourdhumans.py     body-only HMR2 / 4D-Humans (per-frame, camera-relative)
     hybrik.py          whole-body SMPL-X HybrIK-X (MIT)
+    sam3dbody.py       Meta SAM 3D Body → SMPL-X adapter (driver: scripts/sam3d_to_smplx.py)
     smplx_frames.py    whole-body SMPL-X (smplestx/camenduru_smplerx/whac/osx/hand4whole/multihmr)
     fusion.py          body + hand net (WiLoR/HaMeR) → SMPL-X with real hands
     noop.py            synthetic backend (no GPU) for tests/dry-runs

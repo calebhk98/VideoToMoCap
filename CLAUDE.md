@@ -47,6 +47,7 @@ videotomocap/
     trace.py        Body-only world-grounded TRACE (simple-romp; Apache-2.0).
     fourdhumans.py  Body-only HMR2 / 4D-Humans (per-frame + PHALP; camera-relative).
     hybrik.py       Whole-body SMPL-X HybrIK-X (analytical-neural IK; MIT).
+    sam3dbody.py    Meta SAM 3D Body -> SMPL-X (MHR fit; heavy two-stage driver).
     smplx_frames.py Whole-body SMPL-X backends (smplestx/camenduru_smplerx/whac/osx/hand4whole/
                     multihmr) — one per-frame SMPL-X parser, recovers hands.
     fusion.py       Body backend + hand net (WiLoR/HaMeR) → SMPL-X with real
