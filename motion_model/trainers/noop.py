@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import numpy as np
+
 from .. import data
 from .base import MotionTrainer
 
@@ -46,6 +48,18 @@ class NoopTrainer(MotionTrainer):
         self._write_synthetic_curve(save)
         print(f"  noop wrote a synthetic checkpoint to {save}")
         return save
+
+    def sample(self, prompt: str, out_dir: Path) -> Path:
+        """Fabricate a synthetic SMPL-72 motion npz so the `act` flow runs GPU-free."""
+        out_dir.mkdir(parents=True, exist_ok=True)
+        t = 40
+        out = out_dir / "sample.npz"
+        # A gentle synthetic wiggle so the exported BVH isn't all-identity.
+        poses = np.zeros((t, 72), np.float32)
+        poses[:, 0] = 0.05 * np.sin(np.linspace(0, 6.28, t))   # slight root sway
+        np.savez(out, poses=poses, trans=np.zeros((t, 3), np.float32))
+        print(f"  noop sampled synthetic motion for {prompt!r} -> {out}")
+        return out
 
     def _write_synthetic_curve(self, save: Path) -> None:
         """Emit a metrics.jsonl with a deliberate overfitting shape (val dips then

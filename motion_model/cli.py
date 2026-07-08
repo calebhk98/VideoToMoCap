@@ -138,6 +138,26 @@ def _apply_auto_scale(cfg) -> None:
     print(autoscale.format_plan(plan, applied))
 
 
+def cmd_act(args) -> int:
+    """Text prompt -> trained model -> SMPL motion (+ BVH) ready to drive a character."""
+    from . import joints2smpl
+
+    cfg = _cfg(args)
+    trainer = get_trainer(cfg)
+    out_dir = cfg.work_root / "act"
+    print(f"Sampling motion for {args.text!r} (method={cfg.method}) ...")
+    model_out = trainer.sample(args.text, out_dir)
+    motion = joints2smpl.to_smpl_motion(model_out, cfg, fps=cfg.target_fps)
+    npz = out_dir / "motion.npz"
+    motion.save_npz(npz)   # SMPL-72 (+ hands) -> drives SMPL-X-native characters directly
+    print(f"Motion (SMPL, drives SMPL-X-native characters): {npz}")
+    if cfg.smpl_model:
+        from videotomocap import export
+        bvh = export.write_bvh(motion, out_dir / "motion.bvh", model_path=cfg.smpl_model)
+        print(f"BVH (for retargeting onto non-SMPL characters): {bvh}")
+    return 0
+
+
 def cmd_autoscale(args) -> int:
     """Show the data-driven training plan for the corpus (no training)."""
     from . import autoscale
@@ -206,6 +226,10 @@ def build_parser() -> argparse.ArgumentParser:
     tr = sub.add_parser("train", help="prepare + launch training")
     tr.add_argument("--skip-prepare", action="store_true", help="assume prepare already ran")
     tr.set_defaults(func=cmd_train)
+
+    act = sub.add_parser("act", help="text prompt -> trained model -> SMPL motion (+BVH) to drive a character")
+    act.add_argument("text", help="what the character should do, e.g. 'walk regally and wave'")
+    act.set_defaults(func=cmd_act)
 
     sub.add_parser("autoscale",
                    help="preview the data-driven training plan (regime + num_steps) for the corpus"

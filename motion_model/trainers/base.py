@@ -49,6 +49,14 @@ class MotionTrainer(ABC):
         """Shell out to the upstream trainer; return the checkpoint dir. Assumes
         :meth:`prepare` has run (the CLI's ``train`` runs it first)."""
 
+    def sample(self, prompt: str, out_dir: Path) -> Path:
+        """Generate motion from a text prompt -> path to the model's output file (SMPL
+        npz, 22x3 joints, or a HumanML3D-263 array). The ``act`` CLI converts it to SMPL
+        via joints2smpl. Default: unsupported -- generator trainers override it."""
+        raise TrainerError(
+            f"{self.name} has no sample()/text-to-motion path. Use a generator method "
+            f"(momask/mdm) whose model produces motion from a prompt.")
+
     def describe(self) -> str:
         """Human-readable summary of what running this method will do (for `info`)."""
         return f"{self.name}: {self.role} (features: {self.feature_format})"

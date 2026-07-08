@@ -269,6 +269,18 @@ def cmd_export_bvh(args) -> int:
     return 0
 
 
+def cmd_export_retarget_config(args) -> int:
+    """Emit a SMPL-24 -> target-rig bone map (for driving non-SMPL characters)."""
+    from . import retarget
+
+    cfg = _cfg(args)
+    out = Path(args.out) if args.out else cfg.work_root / f"retarget_{args.target}.json"
+    model = Path(args.model) if args.model else None
+    retarget.write_retarget_config(out, args.target, model_path=model)
+    print(f"Wrote retarget config ({args.target}) -> {out}")
+    return 0
+
+
 def cmd_run(args) -> int:
     """Run HMR and build the dataset in one go."""
     cfg = _cfg(args)
@@ -345,6 +357,13 @@ def build_parser() -> argparse.ArgumentParser:
     eb.add_argument("--out", help="output .bvh path (default: alongside the pose npz)")
     eb.add_argument("--scale", type=float, default=100.0, help="metres->unit scale (default 100 = cm)")
     eb.set_defaults(func=cmd_export_bvh)
+
+    rc = sub.add_parser("export-retarget-config",
+                        help="emit a SMPL-24 -> target-rig bone map (drive non-SMPL characters)")
+    rc.add_argument("--target", default="mixamo", choices=["mixamo", "ue5", "smpl"], help="target rig")
+    rc.add_argument("--model", help="neutral SMPL model (.npz/.pkl) for rest-skeleton proportions")
+    rc.add_argument("--out", help="output .json path (default: <work_root>/retarget_<target>.json)")
+    rc.set_defaults(func=cmd_export_retarget_config)
     return p
 
 

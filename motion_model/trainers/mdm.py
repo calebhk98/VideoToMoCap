@@ -18,7 +18,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .. import data
-from .base import MotionTrainer
+from .base import MotionTrainer, TrainerError
 
 
 class MDMTrainer(MotionTrainer):
@@ -68,3 +68,17 @@ class MDMTrainer(MotionTrainer):
         cmd.extend(self.cfg.extra_args)
         self._run_train(cmd, repo)   # early-stop when enabled
         return save
+
+    def sample(self, prompt: str, out_dir: Path) -> Path:
+        """Text -> motion via MDM's sample.generate; returns its results.npy (joints)."""
+        repo = self._require_repo()
+        ckpt = self._require(self.cfg.resume_checkpoint, "resume_checkpoint (trained model to sample)")
+        out_dir.mkdir(parents=True, exist_ok=True)
+        cmd = [self.cfg.trainer_python, "-m", "sample.generate", "--model_path", str(ckpt),
+               "--text_prompt", prompt, "--output_dir", str(out_dir), "--num_repetitions", "1",
+               *self.cfg.extra_args]
+        self._run_cmd(cmd, cwd=repo)
+        results = out_dir / "results.npy"
+        if not results.exists():
+            raise TrainerError(f"mdm: expected {results} from sample.generate; verify vs your checkout.")
+        return results
