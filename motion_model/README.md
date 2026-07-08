@@ -60,10 +60,47 @@ caption)` pair per segment). `prepare` then reads each clip's `caption` field an
 writes real `texts/<clip_id>.txt` automatically; without that field it falls back
 to a loader-valid placeholder (so you can still hand-fill `texts/`).
 
+## Overfitting guard
+
+Training happens inside the upstream loop (a subprocess), so this package can't
+watch the loss live — but it brackets that loop on both sides (`motion_model/overfit.py`):
+
+```bash
+python -m motion_model --config c.yaml overfit-check    # BEFORE training: risk estimate, no GPU
+python -m motion_model --config c.yaml overfit-report   # AFTER training: best pre-overfit checkpoint
+```
+
+- **`overfit-check`** (also printed automatically at the top of `train`) estimates
+  risk from how much motion you have vs how hard you're about to train on it —
+  *exposures* (`num_steps·batch / frames`), total minutes, warm-start, LoRA — and
+  prints concrete fixes. It's **per-donor aware**: it breaks the corpus down by
+  `person_id`, flags under-represented donors, and *lowers* the risk verdict as the
+  donor count grows (a 100-person corpus is a different regime from hours of one
+  person — see below).
+- **`save_every` / `eval_every`** turn on frequent checkpointing + evaluation on the
+  held-out split (Pipeline 1's val clips, written to `test.txt`). MDM/CLoSD map these
+  to `--save_interval` / `--eval_during_training`. Off by default.
+- **`overfit-report`** reads the resulting train/val curve (`checkpoints/metrics.jsonl`,
+  or `--metrics <path>` for the trainer's own log) and tells you the best-val step and
+  whether val turned back up — i.e. which checkpoint to keep instead of the last one.
+  `early_stop_patience` sets how many worsening evals count as a real upturn.
+
+### Scaling to many donors
+
+The guard is built for a corpus that grows from one person to a hundred. It reads
+`person_id` straight from Pipeline 1's multi-person export, so as more people donate
+footage: per-donor coverage is reported, thin donors are flagged, the overfitting
+verdict relaxes with diversity, and — when there's more than one donor and
+`conditioning` isn't `person` — it reminds you to set `conditioning: person` (or train
+per-person sub-datasets) so distinct styles don't average into one. No config changes
+are needed as the donor count scales; the same `overfit-check` reflects the new corpus.
+
 ## Model & training notes
 
 - **Don't train >35M from scratch on hours of one person — it overfits.** Warm-start
   from a pretrained checkpoint (`resume_checkpoint:`), then full fine-tune.
+  (`overfit-check` will say exactly this when it applies — and stop saying it once
+  the corpus is broad enough that from-scratch becomes reasonable.)
 - **Hands:** the data carries MANO hands, but HumanML3D's 263-d body features drop
   them. Real hands need a whole-body representation (Motion-X + HumanTOMATO) — real
   but immature; deferred. Nothing is lost by waiting.

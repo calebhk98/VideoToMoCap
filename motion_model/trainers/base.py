@@ -69,6 +69,24 @@ class MotionTrainer(ABC):
         except subprocess.CalledProcessError as exc:
             raise TrainerError(f"{self.name} exited with status {exc.returncode} on: {printable}") from exc
 
+    def _mdm_eval_flags(self) -> List[str]:
+        """Overfitting-guard flags for the MDM-family trainers (mdm, closd).
+
+        Off by default. ``save_every`` gives you frequent checkpoints to fall back
+        to; ``eval_every`` turns on evaluation against our held-out split (written to
+        test.txt) so `overfit-report` has a val curve. Emitted before ``extra_args``
+        so a user override still wins. Only these upstream flags are used because
+        they're the ones MDM/priorMDM/CLoSD actually expose -- other methods document
+        their own cadence knobs rather than have us guess flag names.
+        """
+        interval = self.cfg.save_every or self.cfg.eval_every
+        flags: List[str] = []
+        if interval > 0:
+            flags += ["--save_interval", str(interval)]
+        if self.cfg.eval_every > 0:
+            flags += ["--eval_during_training", "--eval_split", "test"]
+        return flags
+
     def _subprocess_env(self) -> Optional[dict]:
         """Env for the training subprocess -- pins its GPU when a device is set."""
         device = self.cfg.cuda_device

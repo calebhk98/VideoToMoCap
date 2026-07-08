@@ -114,6 +114,23 @@ class MotionModelConfig:
     guidance_param: float = 2.5
     """Classifier-free-guidance scale used at sampling time (generator methods)."""
 
+    # --- Overfitting guard (generator methods) --------------------------
+    save_every: int = 0
+    """Checkpoint interval in steps (0 = trainer default). Frequent checkpoints let
+    the `overfit-report` fall back to the best PRE-overfit one instead of the last.
+    MDM/CLoSD map it to --save_interval. Fine-tuning a big model on one person is the
+    case where the last checkpoint is often not the best -- see motion_model/overfit.py."""
+
+    eval_every: int = 0
+    """Evaluate on the held-out val split every N steps (0 = off). Produces the val
+    curve `overfit-report` reads to detect the overfitting upturn. MDM/CLoSD map it to
+    --eval_during_training --eval_split test (needs the t2m evaluator bundle present)."""
+
+    early_stop_patience: int = 5
+    """`overfit-report` only: how many successive val-worsening evals after the minimum
+    count as a real overfitting onset (vs curve noise). Not an in-loop early stop -- the
+    upstream trainers run their full num_steps; this picks the checkpoint to keep."""
+
     # --- Physics controller (protomotions / closd) ----------------------
     simulator: str = "isaaclab"
     """'isaaclab' (maintained) / 'isaacgym' (deprecated) / 'mujoco' (CPU) / 'newton'."""

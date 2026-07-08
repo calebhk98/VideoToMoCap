@@ -43,5 +43,14 @@ class NoopTrainer(MotionTrainer):
             "synthetic": True,
         }
         (save / "train_manifest.json").write_text(json.dumps(manifest, indent=2))
+        self._write_synthetic_curve(save)
         print(f"  noop wrote a synthetic checkpoint to {save}")
         return save
+
+    def _write_synthetic_curve(self, save: Path) -> None:
+        """Emit a metrics.jsonl with a deliberate overfitting shape (val dips then
+        rises) so `overfit-report` has a real curve to read in the GPU-free tests."""
+        val = [1.0, 0.7, 0.5, 0.45, 0.5, 0.6, 0.72]  # bottoms at step 300, then climbs
+        rows = [{"step": i * 100, "train_loss": round(1.0 - 0.12 * i, 3), "val_loss": v}
+                for i, v in enumerate(val)]
+        (save / "metrics.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")

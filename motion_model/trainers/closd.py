@@ -62,6 +62,7 @@ class CLoSDTrainer(MotionTrainer):
         if self.cfg.resume_checkpoint is not None:
             ckpt = self._require(self.cfg.resume_checkpoint, "resume_checkpoint")
             cmd.extend(["--resume_checkpoint", str(ckpt)])
+        cmd += self._mdm_eval_flags()   # save_every/eval_every -> the overfitting guard
         cmd.extend(self.cfg.extra_args)
         self._run_cmd(cmd, cwd=repo)
         print(

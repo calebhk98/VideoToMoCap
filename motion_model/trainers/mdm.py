@@ -64,6 +64,7 @@ class MDMTrainer(MotionTrainer):
             cmd += ["--lora_finetune", "--starting_checkpoint", str(ckpt)]
         else:
             cmd += ["--resume_checkpoint", str(ckpt)]
+        cmd += self._mdm_eval_flags()   # save_every/eval_every -> the overfitting guard
         cmd.extend(self.cfg.extra_args)
         self._run_cmd(cmd, cwd=repo)
         return save

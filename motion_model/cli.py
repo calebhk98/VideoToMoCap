@@ -12,6 +12,8 @@ Individual steps, each reading the same config:
     python -m motion_model info         # what the configured method will do
     python -m motion_model prepare      # AMASS dataset -> this method's training data
     python -m motion_model train        # prepare (if needed) then launch training
+    python -m motion_model overfit-check   # pre-flight overfitting risk (per-donor, no GPU)
+    python -m motion_model overfit-report  # post-train: best pre-overfit checkpoint
 """
 
 from __future__ import annotations
@@ -105,9 +107,47 @@ def cmd_train(args) -> int:
     if not args.skip_prepare:
         print(f"Preparing data for method={cfg.method} ...")
         trainer.prepare()
+    _print_overfit_risk(cfg)   # surface the risk BEFORE spending GPU time
     print(f"Training method={cfg.method} ...")
     save = trainer.train()
     print(f"Checkpoints: {save}")
+    return 0
+
+
+def _print_overfit_risk(cfg) -> None:
+    """Best-effort pre-flight risk block; never blocks training if the index is odd."""
+    from . import overfit
+
+    try:
+        index = data.load_index(cfg.dataset_dir)
+    except FileNotFoundError:
+        return
+    print(overfit.format_risk(overfit.assess_risk(cfg, index)))
+
+
+def cmd_overfit_check(args) -> int:
+    """Pre-flight: estimate overfitting risk for the configured run (no GPU/training)."""
+    from . import overfit
+
+    cfg = _cfg(args)
+    index = data.load_index(cfg.dataset_dir)
+    print(overfit.format_risk(overfit.assess_risk(cfg, index)))
+    return 0
+
+
+def cmd_overfit_report(args) -> int:
+    """Post-train: read the train/val curve and report the best pre-overfit checkpoint."""
+    from . import overfit
+
+    cfg = _cfg(args)
+    metrics = Path(args.metrics) if args.metrics else cfg.checkpoint_dir / "metrics.jsonl"
+    if not metrics.exists():
+        print(f"No metrics file at {metrics}. Set eval_every so the trainer logs a val "
+              f"curve, or pass --metrics <path> to point at the trainer's own log.")
+        return 1
+    steps, train, val = overfit.read_metrics(metrics)
+    verdict = overfit.analyze_curves(steps, train, val, cfg.early_stop_patience)
+    print(overfit.format_curves(verdict))
     return 0
 
 
@@ -129,6 +169,13 @@ def build_parser() -> argparse.ArgumentParser:
     tr = sub.add_parser("train", help="prepare + launch training")
     tr.add_argument("--skip-prepare", action="store_true", help="assume prepare already ran")
     tr.set_defaults(func=cmd_train)
+
+    sub.add_parser("overfit-check",
+                   help="pre-flight: estimate overfitting risk (per-donor aware, no GPU)"
+                   ).set_defaults(func=cmd_overfit_check)
+    orp = sub.add_parser("overfit-report", help="post-train: best pre-overfit checkpoint from the val curve")
+    orp.add_argument("--metrics", help="path to the trainer's metrics log (default: checkpoints/metrics.jsonl)")
+    orp.set_defaults(func=cmd_overfit_report)
     return p
 
 
