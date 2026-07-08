@@ -172,6 +172,41 @@ def test_noop_aggregator_makes_description_and_tags():
     assert "dog" in label.tags and label.description and len(label.tags) <= 5
 
 
+def test_caption_focus_validation_and_default():
+    assert CaptionConfig().caption_focus == "scene"
+    assert CaptionConfig(caption_focus="motion").caption_focus == "motion"
+    assert_raises(ValueError, lambda: CaptionConfig(caption_focus="poetic"))
+
+
+def test_noop_aggregator_honors_motion_focus():
+    caps = [FrameCaption(0.5, "a person walking outdoors.")]
+    scene = get_aggregator(CaptionConfig(aggregator="noop", caption_focus="scene")).aggregate(caps, num_tags=5)
+    motion = get_aggregator(CaptionConfig(aggregator="noop", caption_focus="motion")).aggregate(caps, num_tags=5)
+    assert scene.description.startswith("Scene:") and motion.description.startswith("Body movement:")
+
+
+def test_dolphin_command_carries_focus():
+    with tempfile.TemporaryDirectory() as tmp:
+        agg = get_aggregator(_cfg(Path(tmp), aggregator="dolphin", caption_focus="motion"))
+        agg._run_cmd = lambda cmd, cwd=None: Path(_val([str(c) for c in cmd], "--out")).write_text(
+            json.dumps({"description": "d", "tags": []}))
+        calls = []
+        orig = agg._run_cmd
+        agg._run_cmd = lambda cmd, cwd=None: (calls.append([str(c) for c in cmd]), orig(cmd, cwd))[1]
+        agg.aggregate([FrameCaption(0.5, "a")], num_tags=3)
+        assert _val(calls[0], "--focus") == "motion"
+
+
+def test_dolphin_driver_selects_focus_system_prompt():
+    import importlib.util
+    path = Path(__file__).resolve().parents[1] / "scripts" / "dolphin_aggregate.py"
+    spec = importlib.util.spec_from_file_location("dolphin_aggregate", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert "BODY MOVEMENT" in mod._system_for("motion")
+    assert "setting" in mod._system_for("scene")
+
+
 def _stub_driver(backend, writer):
     """Replace _run_cmd: record the cmd and fabricate the driver's --out file."""
     calls = []

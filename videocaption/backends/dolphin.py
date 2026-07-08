@@ -35,6 +35,7 @@ class DolphinBackend(Aggregator):
         request.write_text(json.dumps({
             "model": self.cfg.aggregator_model,
             "num_tags": num_tags,
+            "focus": self.cfg.caption_focus,
             "captions": [{"time": c.time, "text": c.text} for c in captions],
         }))
         cmd = [
@@ -42,6 +43,7 @@ class DolphinBackend(Aggregator):
             "--model", self.cfg.aggregator_model,
             "--request", str(request),
             "--num-tags", str(num_tags),
+            "--focus", self.cfg.caption_focus,
             "--out", str(result),
         ]
         self._run_cmd(cmd, cwd=self.cfg.aggregator_repo)

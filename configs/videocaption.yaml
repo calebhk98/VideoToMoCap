@@ -29,6 +29,8 @@ aggregator: dolphin              # or 'noop'
 aggregator_model: cognitivecomputations/Dolphin3.0-Llama3.1-8B
 aggregator_python: python
 num_tags: 12
+caption_focus: scene            # 'scene' (who/where, for search) or 'motion' (body
+                                # actions, sharper targets for the text-to-motion bridge)
 
 # --- Step 5: search index ---
 index_format: both               # sqlite (queryable) + json (portable)

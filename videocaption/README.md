@@ -99,8 +99,13 @@ a file's own segments), the sliced motion is already anonymized (it comes from
 Pipeline 1's `pose/` npz, written after `anonymize()`), and `motion_model`'s
 `conditioning: text` reads the `caption` field automatically. This is only needed
 for text conditioning — `none` (style) and `action` (motion clusters) need no
-captions. Note the captions are *scene* descriptions; for motion-focused targets
-you'd steer the Step 4 aggregation prompt toward body movement.
+captions.
+
+For sharper text-to-motion targets, set **`caption_focus: motion`** (default
+`scene`): the Step 4 aggregator then describes body actions ("walks forward,
+reaches up, turns left") instead of scenery/appearance, and those motion-worded
+captions flow through the bridge unchanged. Use `scene` when the captions are
+mainly for the search index, `motion` when they're feeding the movement model.
 
 ## Hardware (2× RTX 3090, 48 GB, NVLink, local-only)
 

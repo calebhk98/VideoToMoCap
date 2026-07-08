@@ -124,6 +124,14 @@ class CaptionConfig:
     num_tags: int = 12
     """Target number of keyword/entity tags per segment label."""
 
+    caption_focus: str = "scene"
+    """What the Step 4 label should describe: 'scene' (appearance/setting -- who and
+    where, the default) or 'motion' (body movement and actions -- 'walks forward,
+    reaches up, turns left'). 'motion' steers the aggregator toward the verbs a
+    text-to-motion model wants, so the caption<->motion pairing bridge produces
+    sharper training targets. Frame captions (Step 3) are unchanged either way --
+    only how they're synthesized differs."""
+
     # --- Step 5: Search index -------------------------------------------
     index_format: str = "both"
     """How the (video_id, start, end, description, tags) rows are stored: 'sqlite'
@@ -186,6 +194,7 @@ class CaptionConfig:
         self.merge_adapter = _coerce_bool(self.merge_adapter)
         self.frame_extractor = _one_of(self.frame_extractor, {"ffmpeg", "decord"}, "frame_extractor")
         self.index_format = _one_of(self.index_format, {"sqlite", "json", "both"}, "index_format")
+        self.caption_focus = _one_of(self.caption_focus, {"scene", "motion"}, "caption_focus")
         if self.max_segment_seconds <= 0:
             raise ValueError(f"max_segment_seconds must be > 0, got {self.max_segment_seconds}")
         if self.window_seconds < self.max_segment_seconds:

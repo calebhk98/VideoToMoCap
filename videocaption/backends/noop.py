@@ -51,11 +51,14 @@ class NoopAggregator(Aggregator):
 
     def aggregate(self, captions: List[FrameCaption], *, num_tags: int) -> SegmentLabel:
         texts = [c.text for c in captions]
-        description = (
-            f"Over this segment: {texts[0]} " if texts else "Empty segment. "
-        ) + f"({len(texts)} frames observed.)"
+        # honour caption_focus so the synthetic path exercises both label styles
+        # (and the pairing bridge sees the motion-focused wording it will pass on).
+        focus = getattr(self.cfg, "caption_focus", "scene")
+        lead = "Body movement:" if focus == "motion" else "Scene:"
+        first = texts[0] if texts else "empty"
+        description = f"{lead} {first} ({len(texts)} frames observed.)"
         tags = _keyword_tags(texts, num_tags)
-        return SegmentLabel(description=description.strip(), tags=tags)
+        return SegmentLabel(description=description, tags=tags)
 
 
 _STOPWORDS = {"a", "an", "the", "in", "on", "by", "at", "near", "of", "and", "to", "is", "are"}
