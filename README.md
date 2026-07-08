@@ -60,6 +60,7 @@ via `backend:`:
 |---|---|---|---|
 | `gvhmr` `wham` `tram` | body-only | ✗ (neutral) | fastest bulk; best when hands don't matter |
 | `smplestx` (a.k.a. `smplerx`) | whole-body SMPL-X | ✓ | recommended general whole-body model |
+| `camenduru_smplerx` (a.k.a. `camenduru`) | whole-body SMPL-X | ✓ | SMPLer-X via [camenduru's runnable repackaging](https://github.com/camenduru/SMPLer-X) |
 | `whac` | whole-body SMPL-X | ✓ | **moving-camera + world-grounded** with hands |
 | `hand4whole` | whole-body SMPL-X | ✓✓ | CVPR 2026, MIT, best single-model hands |
 | `osx` `multihmr` | whole-body SMPL-X | ✓ | MIT / fast alternatives |
@@ -526,7 +527,7 @@ videotomocap/
     base.py            HMRBackend ABC + rotation/SMPL-family conversion helpers
     gvhmr.py           default body-only: wraps GVHMR, parses hmr4d_results.pt
     wham.py  tram.py   alternative body-only world-grounded backends
-    smplx_frames.py    whole-body SMPL-X (smplestx/whac/osx/hand4whole/multihmr)
+    smplx_frames.py    whole-body SMPL-X (smplestx/camenduru_smplerx/whac/osx/hand4whole/multihmr)
     fusion.py          body + hand net (WiLoR/HaMeR) → SMPL-X with real hands
     noop.py            synthetic backend (no GPU) for tests/dry-runs
 motion_model/          pipeline 2: MDM fine-tuning bridge, config, and docs

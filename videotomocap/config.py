@@ -65,8 +65,8 @@ class PipelineConfig:
     # --- HMR backend -----------------------------------------------------
     backend: str = "gvhmr"
     """A registered backend. Body-only: 'gvhmr','wham','tram'. Whole-body SMPL-X
-    (with hands): 'smplestx','whac','osx','hand4whole','multihmr'. Combined:
-    'fusion' (body + hand net). Testing: 'noop'."""
+    (with hands): 'smplestx','camenduru_smplerx','whac','osx','hand4whole',
+    'multihmr'. Combined: 'fusion' (body + hand net). Testing: 'noop'."""
 
     backend_repo: Optional[Path] = None
     """Path to the cloned upstream repo (e.g. the GVHMR checkout)."""

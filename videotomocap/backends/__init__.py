@@ -13,6 +13,7 @@ Body-only (fast bulk; hands zero-padded):
 
 Whole-body SMPL-X (recovers articulated hands):
     smplestx   -> https://github.com/SMPLCap/SMPLest-X            (TPAMI 2025)
+    camenduru_smplerx -> https://github.com/camenduru/SMPLer-X   (SMPLer-X, runnable repackaging)
     whac       -> https://github.com/SMPLCap/WHAC                 (ECCV 2024, moving cam)
     osx        -> https://github.com/IDEA-Research/OSX            (CVPR 2023, MIT)
     hand4whole -> https://github.com/mks0601/Hand4Whole-plus-plus_RELEASE (CVPR 2026, MIT)
@@ -34,6 +35,7 @@ from .tram import TRAMBackend
 from .noop import NoopBackend
 from .smplx_frames import (
     SMPLestXBackend,
+    CamenduruSMPLerXBackend,
     WHACBackend,
     OSXBackend,
     Hand4WholePlusBackend,
@@ -49,6 +51,8 @@ _REGISTRY = {
     # whole-body SMPL-X (with hands)
     "smplestx": SMPLestXBackend,
     "smplerx": SMPLestXBackend,   # alias
+    "camenduru_smplerx": CamenduruSMPLerXBackend,
+    "camenduru": CamenduruSMPLerXBackend,   # alias
     "whac": WHACBackend,
     "osx": OSXBackend,
     "hand4whole": Hand4WholePlusBackend,
@@ -81,6 +85,7 @@ __all__ = [
     "TRAMBackend",
     "NoopBackend",
     "SMPLestXBackend",
+    "CamenduruSMPLerXBackend",
     "WHACBackend",
     "OSXBackend",
     "Hand4WholePlusBackend",
