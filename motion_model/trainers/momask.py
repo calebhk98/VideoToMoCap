@@ -12,7 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .. import data
-from .base import MotionTrainer
+from .base import MotionTrainer, TrainerError
 
 
 class MoMaskTrainer(MotionTrainer):
@@ -55,11 +55,27 @@ class MoMaskTrainer(MotionTrainer):
             "--max_epoch", str(max(1, self.cfg.num_steps // 1000)),
             *self.cfg.extra_args,
         ]
-        self._run_cmd(cmd, cwd=repo)
+        self._run_train(cmd, repo)   # early-stop when enabled
+        self._print_stage_hint(name)
+        return save
+
+    def _print_stage_hint(self, name: str) -> None:
         print(
             "  RVQ stage launched. When it converges, train the generator stages:\n"
             f"    python train_t2m_transformer.py --name {name}_trans --vq_name {name}_rvq ...\n"
             f"    python train_res_transformer.py --name {name}_res  --vq_name {name}_rvq ...\n"
             "  (see momask-codes README; both read the same ./dataset/HumanML3D + --checkpoints_dir)."
         )
-        return save
+
+    def sample(self, prompt: str, out_dir: Path) -> Path:
+        """Text -> motion via MoMask's gen_t2m; returns the generated joints npy."""
+        repo = self._require_repo()
+        out_dir.mkdir(parents=True, exist_ok=True)
+        name = self.cfg.weights and Path(self.cfg.weights).name or "mymotion_trans"
+        cmd = [self.cfg.trainer_python, "gen_t2m.py", "--gpu_id", "0", "--name", name,
+               "--text_prompt", prompt, "--ext", str(out_dir), *self.cfg.extra_args]
+        self._run_cmd(cmd, cwd=repo)
+        joints = sorted(out_dir.rglob("*.npy"))
+        if not joints:
+            raise TrainerError(f"momask: no .npy under {out_dir} from gen_t2m.py; verify vs your checkout.")
+        return joints[0]

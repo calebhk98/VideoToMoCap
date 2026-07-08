@@ -12,6 +12,13 @@ Individual steps, each reading the same config:
     python -m motion_model info         # what the configured method will do
     python -m motion_model prepare      # AMASS dataset -> this method's training data
     python -m motion_model train        # prepare (if needed) then launch training
+    python -m motion_model autoscale       # data-driven regime + num_steps for the corpus
+    python -m motion_model overfit-check   # pre-flight overfitting risk (per-donor, no GPU)
+    python -m motion_model overfit-report  # post-train: best pre-overfit checkpoint
+
+One config, any scale: set ``auto_scale: true`` to adapt num_steps/regime to the
+corpus and ``early_stop: true`` (with ``eval_every``) to stop at the overfitting
+onset -- the same YAML then works for 100 hours or a server's corpus.
 """
 
 from __future__ import annotations
@@ -105,9 +112,99 @@ def cmd_train(args) -> int:
     if not args.skip_prepare:
         print(f"Preparing data for method={cfg.method} ...")
         trainer.prepare()
+    if cfg.auto_scale:
+        _apply_auto_scale(cfg)     # adapt num_steps/regime to the corpus (same config, any scale)
+    _print_overfit_risk(cfg)       # surface the risk BEFORE spending GPU time
+    if cfg.early_stop and cfg.eval_every <= 0:
+        print("  NOTE: early_stop is on but eval_every=0 -- no val curve will be logged, so it "
+              "can't trigger. Set eval_every>0.")
     print(f"Training method={cfg.method} ...")
     save = trainer.train()
     print(f"Checkpoints: {save}")
+    return 0
+
+
+def _apply_auto_scale(cfg) -> None:
+    """Apply the data-driven training plan to the config (best-effort; needs an index)."""
+    from . import autoscale
+
+    try:
+        index = data.load_index(cfg.dataset_dir)
+    except FileNotFoundError:
+        print("  auto_scale: no dataset index yet -- skipping (run prepare/build first)")
+        return
+    plan = autoscale.plan_training(cfg, index)
+    applied = autoscale.apply_plan(cfg, plan)
+    print(autoscale.format_plan(plan, applied))
+
+
+def cmd_act(args) -> int:
+    """Text prompt -> trained model -> SMPL motion (+ BVH) ready to drive a character."""
+    from . import joints2smpl
+
+    cfg = _cfg(args)
+    trainer = get_trainer(cfg)
+    out_dir = cfg.work_root / "act"
+    print(f"Sampling motion for {args.text!r} (method={cfg.method}) ...")
+    model_out = trainer.sample(args.text, out_dir)
+    motion = joints2smpl.to_smpl_motion(model_out, cfg, fps=cfg.target_fps)
+    npz = out_dir / "motion.npz"
+    motion.save_npz(npz)   # SMPL-72 (+ hands) -> drives SMPL-X-native characters directly
+    print(f"Motion (SMPL, drives SMPL-X-native characters): {npz}")
+    if cfg.smpl_model:
+        from videotomocap import export
+        bvh = export.write_bvh(motion, out_dir / "motion.bvh", model_path=cfg.smpl_model)
+        print(f"BVH (for retargeting onto non-SMPL characters): {bvh}")
+    return 0
+
+
+def cmd_autoscale(args) -> int:
+    """Show the data-driven training plan for the corpus (no training)."""
+    from . import autoscale
+
+    cfg = _cfg(args)
+    index = data.load_index(cfg.dataset_dir)
+    plan = autoscale.plan_training(cfg, index)
+    print(autoscale.format_plan(plan, ["(preview -- run `train` with auto_scale to apply)"]))
+    return 0
+
+
+def _print_overfit_risk(cfg) -> None:
+    """Best-effort pre-flight risk block; never blocks training if the index is odd."""
+    from . import overfit
+
+    try:
+        index = data.load_index(cfg.dataset_dir)
+    except FileNotFoundError:
+        return
+    print(overfit.format_risk(overfit.assess_risk(cfg, index)))
+
+
+def cmd_overfit_check(args) -> int:
+    """Pre-flight: estimate overfitting risk for the configured run (no GPU/training)."""
+    from . import overfit
+
+    cfg = _cfg(args)
+    index = data.load_index(cfg.dataset_dir)
+    print(overfit.format_risk(overfit.assess_risk(cfg, index)))
+    return 0
+
+
+def cmd_overfit_report(args) -> int:
+    """Post-train: read the train/val curve and report the best pre-overfit checkpoint."""
+    from . import metrics, overfit
+
+    cfg = _cfg(args)
+    if args.metrics:   # explicit override: parse whatever file the user points at
+        curve = overfit.read_metrics(Path(args.metrics))
+    else:              # otherwise let the per-trainer adapter locate + normalize it
+        curve = metrics.read_curve(cfg)
+    if curve is None:
+        print(f"No val curve for method={cfg.method}. {metrics.describe_source(cfg)} "
+              f"Set eval_every so a curve is logged, or pass --metrics <path>.")
+        return 1
+    verdict = overfit.analyze_curves(*curve, cfg.early_stop_patience)
+    print(overfit.format_curves(verdict))
     return 0
 
 
@@ -129,6 +226,20 @@ def build_parser() -> argparse.ArgumentParser:
     tr = sub.add_parser("train", help="prepare + launch training")
     tr.add_argument("--skip-prepare", action="store_true", help="assume prepare already ran")
     tr.set_defaults(func=cmd_train)
+
+    act = sub.add_parser("act", help="text prompt -> trained model -> SMPL motion (+BVH) to drive a character")
+    act.add_argument("text", help="what the character should do, e.g. 'walk regally and wave'")
+    act.set_defaults(func=cmd_act)
+
+    sub.add_parser("autoscale",
+                   help="preview the data-driven training plan (regime + num_steps) for the corpus"
+                   ).set_defaults(func=cmd_autoscale)
+    sub.add_parser("overfit-check",
+                   help="pre-flight: estimate overfitting risk (per-donor aware, no GPU)"
+                   ).set_defaults(func=cmd_overfit_check)
+    orp = sub.add_parser("overfit-report", help="post-train: best pre-overfit checkpoint from the val curve")
+    orp.add_argument("--metrics", help="path to the trainer's metrics log (default: checkpoints/metrics.jsonl)")
+    orp.set_defaults(func=cmd_overfit_report)
     return p
 
 

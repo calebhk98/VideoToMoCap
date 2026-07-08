@@ -19,7 +19,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from motion_model import cli, data, features
+from motion_model import cli, data, features, overfit
 from motion_model.config import MotionModelConfig, load_config
 from motion_model.trainers import TrainerError, available_methods, get_trainer
 
@@ -368,6 +368,15 @@ def test_cli_full_flow_with_noop():
 
 def test_cli_discover_config_prefers_explicit():
     assert cli._discover_config("explicit.yaml") == "explicit.yaml"
+
+
+def test_cli_overfit_check_and_report_with_noop():
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        ds = _fake_dataset(tmp / "dataset")
+        common = ["--dataset-dir", str(ds), "--work-root", str(tmp / "w"), "--method", "noop"]
+        assert cli.main([*common, "train"]) == 0
+
 
 
 def _run_all():

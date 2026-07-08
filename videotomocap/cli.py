@@ -246,6 +246,41 @@ def cmd_caption_dataset(args) -> int:
     return 0
 
 
+def cmd_export_bvh(args) -> int:
+    """Export a recovered pose clip to BVH for step-3 retargeting (MetaHuman/Blender/UE).
+
+    Body-only 24-joint SMPL skeleton -> BVH, the universal on-ramp for UE5's IK
+    Retargeter and Blender import. Needs the neutral SMPL model (the one your HMR
+    backend already uses) for the rest skeleton. See docs/STEP3_RENDER.md.
+    """
+    from . import export
+    from .pose import SmplMotion
+
+    cfg = _cfg(args)
+    pose = Path(args.pose) if args.pose else cfg.pose_dir / f"{args.clip}.npz"
+    if not pose.exists():
+        print(f"No pose npz at {pose} (pass --pose <file> or --clip <id>).")
+        return 1
+    motion = SmplMotion.load_npz(pose)
+    out = Path(args.out) if args.out else pose.with_suffix(".bvh")
+    model = Path(args.model) if args.model else None
+    export.write_bvh(motion, out, model_path=model, scale=args.scale)
+    print(f"Wrote BVH -> {out}")
+    return 0
+
+
+def cmd_export_retarget_config(args) -> int:
+    """Emit a SMPL-24 -> target-rig bone map (for driving non-SMPL characters)."""
+    from . import retarget
+
+    cfg = _cfg(args)
+    out = Path(args.out) if args.out else cfg.work_root / f"retarget_{args.target}.json"
+    model = Path(args.model) if args.model else None
+    retarget.write_retarget_config(out, args.target, model_path=model)
+    print(f"Wrote retarget config ({args.target}) -> {out}")
+    return 0
+
+
 def cmd_run(args) -> int:
     """Run HMR and build the dataset in one go."""
     cfg = _cfg(args)
@@ -314,6 +349,21 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Pipeline 3 work_root holding the caption manifest + labels")
     cd.add_argument("--out", help="output dataset dir (default: <work_root>/dataset_captioned)")
     cd.set_defaults(func=cmd_caption_dataset)
+
+    eb = sub.add_parser("export-bvh", help="convert a recovered pose clip to BVH (step-3 retargeting)")
+    eb.add_argument("--pose", help="pose npz to convert (else --clip resolves under pose_dir)")
+    eb.add_argument("--clip", help="clip id under the work pose_dir (alternative to --pose)")
+    eb.add_argument("--model", help="neutral SMPL model (.npz/.pkl) for the rest skeleton")
+    eb.add_argument("--out", help="output .bvh path (default: alongside the pose npz)")
+    eb.add_argument("--scale", type=float, default=100.0, help="metres->unit scale (default 100 = cm)")
+    eb.set_defaults(func=cmd_export_bvh)
+
+    rc = sub.add_parser("export-retarget-config",
+                        help="emit a SMPL-24 -> target-rig bone map (drive non-SMPL characters)")
+    rc.add_argument("--target", default="mixamo", choices=["mixamo", "ue5", "smpl"], help="target rig")
+    rc.add_argument("--model", help="neutral SMPL model (.npz/.pkl) for rest-skeleton proportions")
+    rc.add_argument("--out", help="output .json path (default: <work_root>/retarget_<target>.json)")
+    rc.set_defaults(func=cmd_export_retarget_config)
     return p
 
 

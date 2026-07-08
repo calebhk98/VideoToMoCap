@@ -60,10 +60,84 @@ caption)` pair per segment). `prepare` then reads each clip's `caption` field an
 writes real `texts/<clip_id>.txt` automatically; without that field it falls back
 to a loader-valid placeholder (so you can still hand-fill `texts/`).
 
+## One config, any scale (`auto_scale` + `early_stop`)
+
+The same YAML should work whether you point it at 100 hours of your own footage or a
+server's corpus — you shouldn't hand-tune per dataset. Two switches make it adaptive:
+
+```yaml
+auto_scale: true      # size the run to the corpus (num_steps + regime)
+early_stop: true      # actually stop at the overfitting onset (needs eval_every > 0)
+eval_every: 2000
+```
+
+- **`auto_scale`** (`motion_model/autoscale.py`, preview with `python -m motion_model
+  autoscale`) measures the prepared corpus and picks the regime it can support:
+  `num_steps` scaled to data volume (≈40 passes over the frames, clamped), and
+  `personalize-tiny → finetune → large-corpus` selecting LoRA-vs-full, warm-start-vs-
+  scratch, and the recommended method. It **applies** the safe knobs (`num_steps`, and
+  `personalization` where the method supports it) and **prints** the rest, because
+  switching method or warm-starting needs a repo/checkpoint it can't conjure.
+  *Honest limit:* the generators are fixed-size (MoMask ~44M, MDM ~35M) — you can't
+  grow a transformer's width without discarding the prior — so this scales the
+  *regime*, not the parameter count.
+- **`early_stop`** (`motion_model/earlystop.py`) does real early stopping the only way
+  an orchestration layer can: the upstream trainers run their full `num_steps` and
+  never self-stop, so the run is monitored and the **trainer subprocess is terminated**
+  once the val curve turns up for `early_stop_patience` evals — then you keep the best
+  checkpoint. This is why `num_steps` from `auto_scale` is just a ceiling: the data
+  decides the real stopping point. Needs `eval_every > 0` so a val curve exists.
+
+  The val curve is located per trainer by `motion_model/metrics.py`: `noop` writes our
+  normalized `metrics.jsonl`; **MDM / CLoSD** are read from the OpenAI-baselines
+  `progress.csv` their logger writes in `save_dir` (`overfit-report` reads it too, no
+  `--metrics` needed); MoMask has no adapter yet, so early-stop won't fire for it until
+  one is added (it says so at preflight rather than silently doing nothing). The column
+  mappings are isolated in `metrics.py` and flagged *verify against your checkout* — 
+  upstream logging drifts, and that's the one place to fix it. A trainer with a
+  different log: point `overfit-report --metrics` at it, or add a parser in `metrics.py`.
+
+## Overfitting guard
+
+Training happens inside the upstream loop (a subprocess), so this package can't
+watch the loss live — but it brackets that loop on both sides (`motion_model/overfit.py`):
+
+```bash
+python -m motion_model --config c.yaml overfit-check    # BEFORE training: risk estimate, no GPU
+python -m motion_model --config c.yaml overfit-report   # AFTER training: best pre-overfit checkpoint
+```
+
+- **`overfit-check`** (also printed automatically at the top of `train`) estimates
+  risk from how much motion you have vs how hard you're about to train on it —
+  *exposures* (`num_steps·batch / frames`), total minutes, warm-start, LoRA — and
+  prints concrete fixes. It's **per-donor aware**: it breaks the corpus down by
+  `person_id`, flags under-represented donors, and *lowers* the risk verdict as the
+  donor count grows (a 100-person corpus is a different regime from hours of one
+  person — see below).
+- **`save_every` / `eval_every`** turn on frequent checkpointing + evaluation on the
+  held-out split (Pipeline 1's val clips, written to `test.txt`). MDM/CLoSD map these
+  to `--save_interval` / `--eval_during_training`. Off by default.
+- **`overfit-report`** reads the resulting train/val curve (`checkpoints/metrics.jsonl`,
+  or `--metrics <path>` for the trainer's own log) and tells you the best-val step and
+  whether val turned back up — i.e. which checkpoint to keep instead of the last one.
+  `early_stop_patience` sets how many worsening evals count as a real upturn.
+
+### Scaling to many donors
+
+The guard is built for a corpus that grows from one person to a hundred. It reads
+`person_id` straight from Pipeline 1's multi-person export, so as more people donate
+footage: per-donor coverage is reported, thin donors are flagged, the overfitting
+verdict relaxes with diversity, and — when there's more than one donor and
+`conditioning` isn't `person` — it reminds you to set `conditioning: person` (or train
+per-person sub-datasets) so distinct styles don't average into one. No config changes
+are needed as the donor count scales; the same `overfit-check` reflects the new corpus.
+
 ## Model & training notes
 
 - **Don't train >35M from scratch on hours of one person — it overfits.** Warm-start
   from a pretrained checkpoint (`resume_checkpoint:`), then full fine-tune.
+  (`overfit-check` will say exactly this when it applies — and stop saying it once
+  the corpus is broad enough that from-scratch becomes reasonable.)
 - **Hands:** the data carries MANO hands, but HumanML3D's 263-d body features drop
   them. Real hands need a whole-body representation (Motion-X + HumanTOMATO) — real
   but immature; deferred. Nothing is lost by waiting.

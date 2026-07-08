@@ -49,6 +49,14 @@ class MotionTrainer(ABC):
         """Shell out to the upstream trainer; return the checkpoint dir. Assumes
         :meth:`prepare` has run (the CLI's ``train`` runs it first)."""
 
+    def sample(self, prompt: str, out_dir: Path) -> Path:
+        """Generate motion from a text prompt -> path to the model's output file (SMPL
+        npz, 22x3 joints, or a HumanML3D-263 array). The ``act`` CLI converts it to SMPL
+        via joints2smpl. Default: unsupported -- generator trainers override it."""
+        raise TrainerError(
+            f"{self.name} has no sample()/text-to-motion path. Use a generator method "
+            f"(momask/mdm) whose model produces motion from a prompt.")
+
     def describe(self) -> str:
         """Human-readable summary of what running this method will do (for `info`)."""
         return f"{self.name}: {self.role} (features: {self.feature_format})"
@@ -68,6 +76,50 @@ class MotionTrainer(ABC):
             ) from exc
         except subprocess.CalledProcessError as exc:
             raise TrainerError(f"{self.name} exited with status {exc.returncode} on: {printable}") from exc
+
+    def _run_train(self, cmd: List[str], cwd: Optional[Path] = None) -> None:
+        """Launch the training command, under the early-stop monitor when enabled.
+
+        When ``early_stop`` is off this is exactly ``_run_cmd`` (so nothing changes and
+        the command-construction tests still capture here). When on, the run is
+        monitored and terminated at the overfitting onset -- see earlystop.py. The val
+        curve is located per trainer by metrics.py, so this works for any method that
+        has an adapter there.
+        """
+        if not getattr(self.cfg, "early_stop", False):
+            self._run_cmd(cmd, cwd=cwd)
+            return
+        from .. import earlystop, metrics
+
+        printable = " ".join(str(c) for c in cmd)
+        print(f"  $ {printable}   (early-stop monitored)")
+        print(f"  {metrics.describe_source(self.cfg)}")
+        reader = metrics.curve_reader(self.cfg, self.cfg.early_stop_patience)
+        result = earlystop.run_with_monitor(
+            cmd, read_verdict=reader, cwd=cwd, env=self._subprocess_env(),
+            poll_interval=self.cfg.early_stop_poll_s)
+        if result.stopped:
+            print(f"  early-stopped at overfitting onset; keep the checkpoint near step {result.best_step}")
+        elif result.returncode not in (0, None):
+            raise TrainerError(f"{self.name} exited with status {result.returncode} on: {printable}")
+
+    def _mdm_eval_flags(self) -> List[str]:
+        """Overfitting-guard flags for the MDM-family trainers (mdm, closd).
+
+        Off by default. ``save_every`` gives you frequent checkpoints to fall back
+        to; ``eval_every`` turns on evaluation against our held-out split (written to
+        test.txt) so `overfit-report` has a val curve. Emitted before ``extra_args``
+        so a user override still wins. Only these upstream flags are used because
+        they're the ones MDM/priorMDM/CLoSD actually expose -- other methods document
+        their own cadence knobs rather than have us guess flag names.
+        """
+        interval = self.cfg.save_every or self.cfg.eval_every
+        flags: List[str] = []
+        if interval > 0:
+            flags += ["--save_interval", str(interval)]
+        if self.cfg.eval_every > 0:
+            flags += ["--eval_during_training", "--eval_split", "test"]
+        return flags
 
     def _subprocess_env(self) -> Optional[dict]:
         """Env for the training subprocess -- pins its GPU when a device is set."""

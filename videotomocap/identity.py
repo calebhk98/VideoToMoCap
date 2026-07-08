@@ -45,6 +45,44 @@ def load_all_betas(cfg: PipelineConfig, unit_ids: List[str]) -> Dict[str, np.nda
     return out
 
 
+# Above these track counts the exact paths stop being affordable: k-means
+# materializes an N*k*dim block and the auto (MST) path a full N*N matrix. At
+# 10^4 people the corpus has millions of tracks, so we switch to mini-batch
+# k-means (never bigger than batch*k) for fixed-k, and refuse the O(N^2) auto path
+# with an actionable message. See docs/SCALING.md.
+MINIBATCH_THRESHOLD = 2000
+MAX_AUTO_PAIRWISE = 4000
+
+
+def _minibatch_kmeans(x: np.ndarray, k: int, *, seed: int = 0,
+                      batch: int = 256, iters: int = 200) -> np.ndarray:
+    """Sculley mini-batch k-means -> per-row label. Never materializes N*k: each
+    step scores only a `batch`*k block, and the final labelling is chunked. This is
+    the path that scales identity assignment to millions of tracks. Deterministic."""
+    rng = np.random.default_rng(seed)
+    k = max(1, min(k, len(x)))
+    centers = x[rng.choice(len(x), size=k, replace=False)].copy()
+    counts = np.zeros(k)
+    for _ in range(iters):
+        idx = rng.choice(len(x), size=min(batch, len(x)), replace=False)
+        bx = x[idx]
+        labels = np.linalg.norm(bx[:, None, :] - centers[None, :, :], axis=2).argmin(axis=1)
+        for row, c in zip(bx, labels):
+            counts[c] += 1
+            centers[c] += (row - centers[c]) / counts[c]   # per-center learning rate
+    return _assign_chunked(x, centers)
+
+
+def _assign_chunked(x: np.ndarray, centers: np.ndarray, chunk: int = 1024) -> np.ndarray:
+    """Nearest-center label for every row, chunk by chunk (bounds peak memory to
+    chunk*k regardless of how many tracks there are)."""
+    labels = np.zeros(len(x), dtype=int)
+    for s in range(0, len(x), chunk):
+        xb = x[s:s + chunk]
+        labels[s:s + chunk] = np.linalg.norm(xb[:, None, :] - centers[None, :, :], axis=2).argmin(axis=1)
+    return labels
+
+
 def _kmeans(x: np.ndarray, k: int, *, seed: int = 0, iters: int = 50) -> np.ndarray:
     """Tiny deterministic k-means -> per-row cluster label. Pure NumPy."""
     rng = np.random.default_rng(seed)
@@ -133,11 +171,25 @@ def cluster_betas(betas_by_unit: Dict[str, np.ndarray], max_people: int,
         return {}
     unit_ids = sorted(betas_by_unit)
     x = np.stack([betas_by_unit[u] for u in unit_ids]).astype(np.float64)
-    if max_people and max_people > 0:
-        labels = _kmeans(x, min(max_people, len(x)))
-    else:
-        labels = _cluster_auto(x, gap_ratio)
+    labels = _cluster_labels(x, max_people, gap_ratio)
     return {uid: int(lbl) for uid, lbl in zip(unit_ids, labels)}
+
+
+def _cluster_labels(x: np.ndarray, max_people: int, gap_ratio: float) -> np.ndarray:
+    """Pick the clustering that fits the corpus size. Fixed-k uses mini-batch above
+    MINIBATCH_THRESHOLD (exact k-means below it); auto-discovery is exact only while
+    the N*N matrix is affordable, and fails loud with the fix above that."""
+    if max_people and max_people > 0:
+        if len(x) > MINIBATCH_THRESHOLD:
+            return _minibatch_kmeans(x, min(max_people, len(x)))
+        return _kmeans(x, min(max_people, len(x)))
+    if len(x) > MAX_AUTO_PAIRWISE:
+        raise ValueError(
+            f"auto person discovery (max_people=0) builds an N*N distance matrix, but "
+            f"there are {len(x)} tracks. At this scale set max_people>0 to use scalable "
+            f"mini-batch k-means, or pre-block tracks by a coarse key first (see docs/SCALING.md)."
+        )
+    return _cluster_auto(x, gap_ratio)
 
 
 def assign_people(cfg: PipelineConfig, manifest: Manifest) -> Dict[str, int]:

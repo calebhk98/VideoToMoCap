@@ -29,6 +29,10 @@ videotomocap/
   dataset.py      Aggregate anonymized clips → AMASS-SMPL-H npz + train/val split.
   pipeline.py     Orchestration: scan → hmr → refine → anonymize → build.
                   Parallel (thread-per-clip, GPU-pinned) + resumable.
+  store.py        Distributed-scale clip state (opt-in): ClipStore ABC + sqlite WAL
+                  impl. Append-only, atomic claim_next() work queue, streaming reads
+                  — the seam for many workers/machines. Manifest stays the default;
+                  see docs/SCALING.md.
   gpu.py          Detect GPUs (nvidia-smi), size workers-per-GPU from free VRAM
                   (calibrate on clip 0), resolve device/worker counts.
   regions.py      Body region → SMPL joint indices (occlusion tagging).
@@ -46,6 +50,9 @@ videotomocap/
   identity.py     Cross-clip identity: cluster per-track betas -> person_id (the
                   ONLY place body shape is retained, in the consent-gated store).
   people.py       People registry + consent ledger (people.json) + audit log.
+  export.py       Step-3 bridge: SMPL motion -> BVH (pure-NumPy; parent-relative pose
+                  maps straight to BVH local rotations). The on-ramp to MetaHuman/UE5
+                  IK-retargeting + Blender. `export-bvh` CLI; see docs/STEP3_RENDER.md.
   captioned_dataset.py  Bridge: slice motion at Pipeline 3's caption-segment spans
                   -> text-to-motion dataset (track-aware + consent-gated).
   cli.py          `python -m videotomocap <cmd>`. Thin wrapper over the above.
@@ -62,6 +69,12 @@ videotomocap/
                     hands. FK wrist relocalization + smoothing glue lives here.
     noop.py         Synthetic backend — no GPU/weights. Powers the tests.
 motion_model/     Pipeline 2: MDM data-prep bridge, finetune config, docs.
+character/        Pipeline 3: invented-character generation. Pluggable open-tool
+                  backends (lhm/idol/en3d/so_smpl/econ/icon/sifu/mpfb2/...) selected by
+                  CharacterConfig.method — all local/open, each a subprocess adapter with
+                  a noop for GPU-free tests. Mesh critic (pure-NumPy geometry + local-VLM
+                  on multi-view renders) + generate→critique→refine loop. SMPL-X-native
+                  tools drive from Pipeline 2 with no retarget. See character/README.md.
 scripts/selftest.py   GPU-free end-to-end test of pipeline 1.
 tests/            Unit tests (rotation math, pose helpers).
 dropzone/         Where the user drops videos (git-ignores the media).
