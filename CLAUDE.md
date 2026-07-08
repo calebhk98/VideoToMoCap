@@ -50,6 +50,9 @@ videotomocap/
   identity.py     Cross-clip identity: cluster per-track betas -> person_id (the
                   ONLY place body shape is retained, in the consent-gated store).
   people.py       People registry + consent ledger (people.json) + audit log.
+  export.py       Step-3 bridge: SMPL motion -> BVH (pure-NumPy; parent-relative pose
+                  maps straight to BVH local rotations). The on-ramp to MetaHuman/UE5
+                  IK-retargeting + Blender. `export-bvh` CLI; see docs/STEP3_RENDER.md.
   captioned_dataset.py  Bridge: slice motion at Pipeline 3's caption-segment spans
                   -> text-to-motion dataset (track-aware + consent-gated).
   cli.py          `python -m videotomocap <cmd>`. Thin wrapper over the above.
