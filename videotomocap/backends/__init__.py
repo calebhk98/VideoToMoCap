@@ -10,6 +10,7 @@ Body-only (fast bulk; hands zero-padded):
     gvhmr -> https://github.com/zju3dv/GVHMR      (SIGGRAPH Asia 2024)  [default]
     wham  -> https://github.com/yohanshin/WHAM     (CVPR 2024)
     tram  -> https://github.com/yufu-wang/tram     (ECCV 2024)
+    hmr2  -> https://github.com/shubham-goel/4D-Humans (ICCV 2023, camera-relative)
 
 Whole-body SMPL-X (recovers articulated hands):
     smplestx   -> https://github.com/SMPLCap/SMPLest-X            (TPAMI 2025)
@@ -32,6 +33,7 @@ from .base import HMRBackend, BackendError
 from .gvhmr import GVHMRBackend
 from .wham import WHAMBackend
 from .tram import TRAMBackend
+from .fourdhumans import FourDHumansBackend
 from .noop import NoopBackend
 from .smplx_frames import (
     SMPLestXBackend,
@@ -48,6 +50,9 @@ _REGISTRY = {
     "gvhmr": GVHMRBackend,
     "wham": WHAMBackend,
     "tram": TRAMBackend,
+    "hmr2": FourDHumansBackend,
+    "4dhumans": FourDHumansBackend,   # alias
+    "fourdhumans": FourDHumansBackend,   # alias
     # whole-body SMPL-X (with hands)
     "smplestx": SMPLestXBackend,
     "smplerx": SMPLestXBackend,   # alias
@@ -83,6 +88,7 @@ __all__ = [
     "GVHMRBackend",
     "WHAMBackend",
     "TRAMBackend",
+    "FourDHumansBackend",
     "NoopBackend",
     "SMPLestXBackend",
     "CamenduruSMPLerXBackend",

@@ -59,6 +59,7 @@ via `backend:`:
 | `backend:` | Kind | Hands | Notes |
 |---|---|---|---|
 | `gvhmr` `wham` `tram` | body-only | ✗ (neutral) | fastest bulk; best when hands don't matter |
+| `hmr2` (a.k.a. `4dhumans`) | body-only | ✗ (neutral) | [4D-Humans](https://github.com/shubham-goel/4D-Humans) HMR2, per-frame + PHALP tracking (camera-relative) |
 | `smplestx` (a.k.a. `smplerx`) | whole-body SMPL-X | ✓ | recommended general whole-body model |
 | `camenduru_smplerx` (a.k.a. `camenduru`) | whole-body SMPL-X | ✓ | SMPLer-X via [camenduru's runnable repackaging](https://github.com/camenduru/SMPLer-X) |
 | `whac` | whole-body SMPL-X | ✓ | **moving-camera + world-grounded** with hands |
@@ -215,6 +216,12 @@ backend: gvhmr
 backend_repo: /opt/GVHMR
 backend_python: /opt/miniconda3/envs/gvhmr/bin/python
 ```
+
+Most backends need SMPL/SMPL-X/MANO body models plus their own checkpoints,
+usually behind separate registrations. [`lithiumice/models_hub`](https://huggingface.co/lithiumice/models_hub)
+is a convenient Hugging Face mirror that bundles many of them (SMPL/SMPL-H/SMPL-X,
+MANO, FLAME, and the HMR2/4D-Humans checkpoints the `hmr2` backend uses) in one
+git-LFS repo — check each model's license before relying on it.
 
 ## Usage
 
@@ -527,6 +534,7 @@ videotomocap/
     base.py            HMRBackend ABC + rotation/SMPL-family conversion helpers
     gvhmr.py           default body-only: wraps GVHMR, parses hmr4d_results.pt
     wham.py  tram.py   alternative body-only world-grounded backends
+    fourdhumans.py     body-only HMR2 / 4D-Humans (per-frame, camera-relative)
     smplx_frames.py    whole-body SMPL-X (smplestx/camenduru_smplerx/whac/osx/hand4whole/multihmr)
     fusion.py          body + hand net (WiLoR/HaMeR) → SMPL-X with real hands
     noop.py            synthetic backend (no GPU) for tests/dry-runs

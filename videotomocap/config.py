@@ -64,8 +64,8 @@ class PipelineConfig:
 
     # --- HMR backend -----------------------------------------------------
     backend: str = "gvhmr"
-    """A registered backend. Body-only: 'gvhmr','wham','tram'. Whole-body SMPL-X
-    (with hands): 'smplestx','camenduru_smplerx','whac','osx','hand4whole',
+    """A registered backend. Body-only: 'gvhmr','wham','tram','hmr2'. Whole-body
+    SMPL-X (with hands): 'smplestx','camenduru_smplerx','whac','osx','hand4whole',
     'multihmr'. Combined: 'fusion' (body + hand net). Testing: 'noop'."""
 
     backend_repo: Optional[Path] = None
