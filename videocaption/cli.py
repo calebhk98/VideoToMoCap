@@ -146,6 +146,14 @@ def cmd_info(args) -> int:
     return 0
 
 
+def cmd_config_template(args) -> int:
+    """Print a fully-commented YAML with every config option (redirect to a file)."""
+    from .config import config_template
+
+    print(config_template(), end="")
+    return 0
+
+
 def cmd_models(args) -> int:
     """List the selectable captioner/aggregator backends."""
     print("captioners:  " + ", ".join(available_captioners()))
@@ -230,6 +238,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("status", help="show video-state counts").set_defaults(func=cmd_status)
     sub.add_parser("info", help="show resolved models/knobs").set_defaults(func=cmd_info)
     sub.add_parser("models", help="list selectable captioner/aggregator backends").set_defaults(func=cmd_models)
+    sub.add_parser("config-template",
+                   help="print a fully-commented YAML of every config option").set_defaults(func=cmd_config_template)
 
     ex = sub.add_parser("exclude", help="exclude videos by id or glob pattern")
     ex.add_argument("--pattern", action="append", help="glob against rel path; repeatable")

@@ -1,5 +1,7 @@
 # Example config for Pipeline 3 -- caption a personal video archive + index it.
 #   python -m videocaption --config configs/videocaption.yaml run
+# Curated starter -- for a fully-commented file with EVERY option:
+#   python -m videocaption config-template > my_caption.yaml
 # Every field has a documented default in videocaption/config.py; override what
 # you need. The open items from the spec are the tuning knobs marked TUNE below.
 

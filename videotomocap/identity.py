@@ -64,49 +64,79 @@ def _kmeans(x: np.ndarray, k: int, *, seed: int = 0, iters: int = 50) -> np.ndar
     return labels
 
 
-def _choose_k(x: np.ndarray, max_people: int) -> int:
-    """Pick the number of people. ``max_people`` when set; else a simple gap
-    heuristic on the sorted pairwise spread, capped so a few clips can't over-split."""
+def _cluster_auto(x: np.ndarray, gap_ratio: float) -> np.ndarray:
+    """Discover the number of people from the shapes themselves -> per-row label.
+
+    Single-linkage (MST) agglomerative + a gap cut: build the minimum spanning tree
+    over the betas, then cut the edges *above* the largest relative jump in merge
+    distance. Within-person merges are tight and similar; the jump to the first
+    between-person merge is large -- so ONE person (a single tight blob, no jump)
+    stays one cluster, and distinct people separate cleanly. Robust where a fixed-k
+    or variance heuristic would over-split a single person's natural jitter.
+    """
     n = len(x)
-    if max_people and max_people > 0:
-        return min(max_people, n)
-    if n <= 2:
-        return n
-    # Heuristic: distinct people show up as a shape spread well above within-person
-    # noise. Grow k while the tightest cluster stays separated; cap at ~sqrt(n).
-    cap = max(1, min(n, int(round(np.sqrt(n)))))
-    best_k, best_score = 1, -np.inf
-    for k in range(1, cap + 1):
-        labels = _kmeans(x, k)
-        score = _separation(x, labels)
-        if score > best_score:
-            best_k, best_score = k, score
-    return best_k
+    if n <= 1:
+        return np.zeros(n, dtype=int)
+
+    d = np.linalg.norm(x[:, None, :] - x[None, :, :], axis=2)
+    iu = np.triu_indices(n, 1)
+    order = np.argsort(d[iu])
+    edges = [(int(iu[0][k]), int(iu[1][k]), float(d[iu][k])) for k in order]
+
+    parent = list(range(n))
+
+    def find(a: int) -> int:
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    mst = []  # (i, j, dist) in ascending merge order (single linkage)
+    for i, j, dist in edges:
+        if find(i) != find(j):
+            parent[find(i)] = find(j)
+            mst.append((i, j, dist))
+
+    n_cut = _cut_count(np.array([e[2] for e in mst]), gap_ratio)
+    keep = mst[: len(mst) - n_cut]  # drop the longest (between-person) edges
+
+    parent = list(range(n))
+    for i, j, _ in keep:
+        parent[find(i)] = find(j)
+    roots: Dict[int, int] = {}
+    labels = np.zeros(n, dtype=int)
+    for a in range(n):
+        labels[a] = roots.setdefault(find(a), len(roots))
+    return labels
 
 
-def _separation(x: np.ndarray, labels: np.ndarray) -> float:
-    """Between-cluster spread minus within-cluster spread (higher = cleaner split)."""
-    within = 0.0
-    for c in np.unique(labels):
-        members = x[labels == c]
-        if len(members) > 1:
-            within += np.linalg.norm(members - members.mean(axis=0), axis=1).mean()
-    centers = np.stack([x[labels == c].mean(axis=0) for c in np.unique(labels)])
-    if len(centers) < 2:
-        return -within
-    between = np.linalg.norm(centers[:, None, :] - centers[None, :, :], axis=2)
-    between = between[between > 0].min()
-    return float(between - within)
+def _cut_count(dists: np.ndarray, gap_ratio: float) -> int:
+    """How many of the longest MST edges to cut: those past the largest relative
+    jump, but only if that jump is a real gap (>= ``gap_ratio``x). Else 0 -> one
+    person. Two tracks with no baseline default to merged (conservative)."""
+    if len(dists) < 2:
+        return 0
+    ratios = dists[1:] / np.maximum(dists[:-1], 1e-9)
+    idx = int(np.argmax(ratios))
+    if ratios[idx] < gap_ratio:
+        return 0
+    return len(dists) - (idx + 1)
 
 
-def cluster_betas(betas_by_unit: Dict[str, np.ndarray], max_people: int) -> Dict[str, int]:
-    """Group tracks by body shape -> {unit_id: cluster_index}. Deterministic."""
+def cluster_betas(betas_by_unit: Dict[str, np.ndarray], max_people: int,
+                  gap_ratio: float = 3.0) -> Dict[str, int]:
+    """Group tracks by body shape -> {unit_id: cluster_index}. Deterministic.
+
+    ``max_people`` > 0 fixes the count (k-means); 0 = auto-discover it (MST gap).
+    """
     if not betas_by_unit:
         return {}
     unit_ids = sorted(betas_by_unit)
     x = np.stack([betas_by_unit[u] for u in unit_ids]).astype(np.float64)
-    k = _choose_k(x, max_people)
-    labels = _kmeans(x, k)
+    if max_people and max_people > 0:
+        labels = _kmeans(x, min(max_people, len(x)))
+    else:
+        labels = _cluster_auto(x, gap_ratio)
     return {uid: int(lbl) for uid, lbl in zip(unit_ids, labels)}
 
 
@@ -129,7 +159,7 @@ def assign_people(cfg: PipelineConfig, manifest: Manifest) -> Dict[str, int]:
         labels = {uid: 0 for uid, _, _ in units}
     else:  # 'shape' (manual assignment is done via the CLI, not here)
         betas = load_all_betas(cfg, [uid for uid, _, _ in units])
-        labels = cluster_betas(betas, cfg.max_people)
+        labels = cluster_betas(betas, cfg.max_people, gap_ratio=cfg.shape_gap_ratio)
 
     registry = people.load_registry(cfg)
     counts: Dict[str, int] = {}

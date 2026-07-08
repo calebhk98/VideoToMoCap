@@ -176,6 +176,14 @@ def cmd_mirror(args) -> int:
     return 0
 
 
+def cmd_config_template(args) -> int:
+    """Print a fully-commented YAML with every config option (redirect to a file)."""
+    from .config import config_template
+
+    print(config_template(), end="")
+    return 0
+
+
 def cmd_people(args) -> int:
     """Manage the people registry + consent (multi_person). Actions:
     list | assign (cluster tracks -> person_id) | grant | revoke."""
@@ -290,6 +298,8 @@ def build_parser() -> argparse.ArgumentParser:
     mr.set_defaults(func=cmd_mirror)
 
     sub.add_parser("build", help="aggregate anonymized clips into an AMASS dataset").set_defaults(func=cmd_build)
+    sub.add_parser("config-template",
+                   help="print a fully-commented YAML of every config option").set_defaults(func=cmd_config_template)
 
     pp = sub.add_parser("people", help="manage people + consent (multi_person)")
     pp.add_argument("action", choices=["list", "assign", "grant", "revoke"],

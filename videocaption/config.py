@@ -13,6 +13,7 @@ with just the standard library (+ optional PyYAML for ``load_config``).
 from __future__ import annotations
 
 import dataclasses
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -241,6 +242,58 @@ class CaptionConfig:
             if isinstance(v, Path):
                 d[k] = str(v)
         return d
+
+
+def _yaml_scalar(v) -> str:
+    """Render a Python default as a valid YAML (JSON-subset) scalar."""
+    if isinstance(v, Path):
+        v = str(v)
+    if isinstance(v, tuple):
+        v = list(v)
+    try:
+        return json.dumps(v)
+    except TypeError:
+        return json.dumps(str(v))
+
+
+def _yaml_template(cls, skip=()) -> str:
+    """Render a config dataclass as commented YAML: every field + its docstring
+    (read from the source, so the template never drifts from the dataclass)."""
+    import ast
+    import inspect
+    import textwrap
+
+    body = ast.parse(textwrap.dedent(inspect.getsource(cls))).body[0].body
+    docs = {}
+    for i, node in enumerate(body):
+        if not (isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)):
+            continue
+        nxt = body[i + 1] if i + 1 < len(body) else None
+        if isinstance(nxt, ast.Expr) and isinstance(getattr(nxt, "value", None), ast.Constant) \
+                and isinstance(nxt.value.value, str):
+            docs[node.target.id] = nxt.value.value
+
+    out = []
+    for f in dataclasses.fields(cls):
+        if f.name in skip:
+            continue
+        if f.default is not dataclasses.MISSING:
+            val = f.default
+        elif f.default_factory is not dataclasses.MISSING:  # type: ignore[comparison-overlap]
+            val = f.default_factory()
+        else:
+            val = None
+        for line in textwrap.wrap(" ".join(docs.get(f.name, "").split()), 76):
+            out.append(f"# {line}")
+        out.append(f"{f.name}: {_yaml_scalar(val)}")
+        out.append("")
+    return "\n".join(out).rstrip() + "\n"
+
+
+def config_template() -> str:
+    """Fully-commented YAML with EVERY CaptionConfig option + its docs.
+    Use via ``python -m videocaption config-template > my.yaml``."""
+    return _yaml_template(CaptionConfig, skip=("cuda_device",))
 
 
 def load_config(path: str | Path) -> CaptionConfig:

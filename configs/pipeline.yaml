@@ -1,5 +1,7 @@
 # Example pipeline config. Copy and edit for your machine.
 # Every key maps to a field on videotomocap.config.PipelineConfig.
+# This is a curated starter -- for a fully-commented file listing EVERY option:
+#   python -m videotomocap config-template > my_config.yaml
 
 # --- Ingestion -------------------------------------------------------------
 footage_root: /data/security_footage      # tree of per-camera folders
@@ -85,6 +87,7 @@ gender: neutral
 # export one dataset per person. Off = original single-subject behavior.
 multi_person: false        # true to enable (needs a multi-person-capable backend)
 person_assignment: shape   # shape (cluster betas) | manual | single
-max_people: 0              # expected distinct people; 0 = auto
+max_people: 0              # expected distinct people; 0 = auto (set it if you know)
+shape_gap_ratio: 3.0       # auto-split sensitivity; higher = surer/fewer identities
 consent_required: true     # fail-closed: a track exports only if its person consented
 unassigned_policy: exclude # exclude | include (tracks with no assigned person)

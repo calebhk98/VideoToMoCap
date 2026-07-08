@@ -79,6 +79,34 @@ def test_noop_runtracks_makes_distinct_stable_people():
 
 # -- identity clustering ----------------------------------------------------
 
+def test_cluster_betas_auto_does_not_oversplit_one_person():
+    # one person, many clips, realistic within-person jitter -> exactly ONE identity
+    rng = np.random.default_rng(1)
+    base = np.array([2.0, -1.0, 0.5, 3.0, -2.0, 1.0, 0.0, -0.5, 1.5, -1.0])
+    one = {f"c{i}__p0": base + rng.normal(0, 0.05, 10) for i in range(8)}
+    assert len(set(identity.cluster_betas(one, max_people=0).values())) == 1
+    # and it still separates genuinely distinct people in auto mode
+    two = {**{f"a{i}__p0": base + rng.normal(0, 0.05, 10) for i in range(5)},
+           **{f"b{i}__p0": -base + rng.normal(0, 0.05, 10) for i in range(5)}}
+    assert len(set(identity.cluster_betas(two, max_people=0).values())) == 2
+
+
+def test_multiperson_flow_with_a_single_person():
+    # multi_person ON but footage has only one person: must still work end-to-end
+    with tempfile.TemporaryDirectory() as tmp:
+        cfg = _cfg(Path(tmp), multi_person=True, synthetic_people=1, max_people=0)
+        m = ingest.scan(cfg)
+        m.save(cfg.manifest_path)
+        pipeline.run_hmr(cfg, m)
+        assert all(len(c.tracks) == 1 for c in m.by_status(ingest.POSE_DONE))
+        pipeline.build(cfg, m)                      # assigns -> one person
+        registry = people.load_registry(cfg)
+        assert set(registry) == {"person_00"}       # not over-split
+        people.set_consent(cfg, "person_00", granted=True)
+        stats = pipeline.build(cfg, m)
+        assert stats.n_clips == len(m.by_status(ingest.POSE_DONE))
+
+
 def test_cluster_betas_groups_by_person():
     # two people, three tracks each, small within-person jitter
     rng = np.random.default_rng(0)

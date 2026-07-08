@@ -7,6 +7,15 @@ person on consent, and export one motion dataset per person — so a whole famil
 
 GPU-free end-to-end check: `python scripts/multiperson_selftest.py`.
 
+**Works for one person too.** `multi_person` degrades cleanly to a single subject:
+one track per clip, shape-clustering resolves to a single identity (it won't
+over-split one person's natural jitter — auto cluster-count uses an MST gap test),
+and the per-person export is just that one person. You still grant consent once.
+If you only ever have one subject, the plain single-subject default is simpler and
+needs no consent step — but turning `multi_person` on does not break the 1-person
+case. Every option here is in the config; `videotomocap config-template` prints a
+fully-commented reference.
+
 ## Quick start
 
 ```bash

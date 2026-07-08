@@ -46,6 +46,13 @@ the whole pipeline with one command:
 python -m videotomocap run           # scan → exclude → hmr → build, all from the config
 ```
 
+Every knob lives in the YAML config. For a fully-commented file listing **every**
+option with its documentation (each of the three pipelines has one):
+
+```bash
+python -m videotomocap config-template > my_config.yaml   # also: videocaption / motion_model
+```
+
 ## Backends (HMR methods)
 
 The HMR backend is **one config line**, so you can benchmark two on a day of

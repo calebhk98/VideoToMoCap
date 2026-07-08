@@ -1,4 +1,6 @@
 # Pipeline 2 config -- train a motion model on Pipeline 1's dataset.
+# Curated starter -- for a fully-commented file with EVERY option:
+#   python -m motion_model config-template > my_motion.yaml
 # Usage:
 #   python -m motion_model --config configs/motion_model.yaml methods   # list options
 #   python -m motion_model --config configs/motion_model.yaml info
