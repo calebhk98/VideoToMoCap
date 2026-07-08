@@ -18,6 +18,8 @@ Whole-body SMPL-X (recovers articulated hands):
     camenduru_smplerx -> https://github.com/camenduru/SMPLer-X   (SMPLer-X, runnable repackaging)
     hybrik     -> https://github.com/jeffffffli/HybrIK           (HybrIK-X, TPAMI 2025, MIT)
     sam3dbody  -> https://github.com/facebookresearch/sam-3d-body (Meta 2026, MHR->SMPL-X fit)
+    sambody4d  -> https://github.com/gaomingqi/sam-body4d          (MIT 2025, training-free;
+                  SAM-3 tracking + Diffusion-VAS occlusion completion around sam-3d-body)
     whac       -> https://github.com/SMPLCap/WHAC                 (ECCV 2024, moving cam)
     osx        -> https://github.com/IDEA-Research/OSX            (CVPR 2023, MIT)
     hand4whole -> https://github.com/mks0601/Hand4Whole-plus-plus_RELEASE (CVPR 2026, MIT)
@@ -49,6 +51,7 @@ from .smplx_frames import (
     MultiHMRBackend,
 )
 from .sam3dbody import Sam3dBodyBackend
+from .sambody4d import SamBody4DBackend
 from .fusion import FusionBackend
 
 _REGISTRY = {
@@ -73,6 +76,9 @@ _REGISTRY = {
     "multihmr": MultiHMRBackend,
     "sam3dbody": Sam3dBodyBackend,
     "sam3d": Sam3dBodyBackend,   # alias
+    "sambody4d": SamBody4DBackend,
+    "sam4d": SamBody4DBackend,   # alias
+    "sam_body4d": SamBody4DBackend,   # alias
     # combined
     "fusion": FusionBackend,
     # testing
@@ -110,6 +116,7 @@ __all__ = [
     "Hand4WholePlusBackend",
     "MultiHMRBackend",
     "Sam3dBodyBackend",
+    "SamBody4DBackend",
     "FusionBackend",
     "get_backend",
     "available_backends",

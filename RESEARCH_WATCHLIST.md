@@ -65,8 +65,17 @@ the watchlist rather than in the pipeline.
 ## Suggested strategy if truncated framing is central to your footage
 Watch **FactorizedHMR**'s repo and be ready to reimplement its torso-anchor +
 generative-limb-completion design; pair with a working occlusion-robust baseline
-today (**SAM-Body4D**) and, once released, a temporal de-drift pass
-(**HTD-Refine**). For hands under close-up framing, watch **DanceHMR**.
+today (**SAM-Body4D**, now wrapped — `backend: sambody4d`, see below) and, once
+released, a temporal de-drift pass (**HTD-Refine**). For hands under close-up
+framing, watch **DanceHMR**.
+
+> **Graduated:** **SAM-Body4D** (arXiv:2512.08406, [gaomingqi/sam-body4d](https://github.com/gaomingqi/sam-body4d),
+> MIT) shipped runnable code + an SMPL-X export tag, so it moved from this
+> watchlist to an implemented backend (`videotomocap/backends/sambody4d.py`). It
+> is training-free — SAM-3 mask tracking + Diffusion-VAS occlusion completion
+> around the same `sam-3d-body` model our `sam3dbody` backend already fits — so it
+> reuses that MHR→SMPL-X path. Heavy + HF-gated; camera-relative (no world root).
+> See `README.md`'s backend table.
 
 ## Multi-person & identity (2026-07 survey)
 

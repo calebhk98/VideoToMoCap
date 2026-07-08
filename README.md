@@ -398,7 +398,7 @@ footage.
 | **TRAM** | [yufu-wang/tram](https://github.com/yufu-wang/tram) | yes (DROID-SLAM) | multi-stage; not benchmarked here | supported alt |
 | **SLAHMR** | [vye16/slahmr](https://github.com/vye16/slahmr) | yes (optimization) | ~78 h / 10-min clip | not wrapped (infeasible at volume) |
 | **DanceHMR** | [project page](https://shenwenhao01.github.io/dancehmr/) | — | — | withdrawn, no public code |
-| **SAM-Body4D** | [gaomingqi/sam-body4d](https://github.com/gaomingqi/sam-body4d) | yes | — | future backend |
+| **SAM-Body4D** | [gaomingqi/sam-body4d](https://github.com/gaomingqi/sam-body4d) | yes (mask-tracked) | ~26 min / 90 fr (occlusion on) | **wrapped** (`backend: sambody4d`) — occlusion-robust, camera-relative |
 
 **The privacy mechanism.** SMPL factors a human into **shape** (`betas` —
 build/limb-lengths, strongly identifying) and **pose** (per-joint rotations over
