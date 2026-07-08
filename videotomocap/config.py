@@ -184,9 +184,16 @@ class PipelineConfig:
     """Median global pixel shift below this = a static camera (skip VO)."""
 
     # --- Dataset ---------------------------------------------------------
-    target_fps: float = 30.0
+    target_fps: float = 20.0
     """Frame rate every clip is resampled to before anonymization/export, so the
-    exported dataset has a uniform rate regardless of source camera fps."""
+    exported dataset has a uniform rate regardless of source camera fps.
+
+    Defaults to 20 to match the downstream motion-model stack: HumanML3D (and the
+    MDM prior trained on it) operate at 20 fps and decimate AMASS with a naive
+    ``int(source_fps / 20)`` stride. Any value that is NOT a multiple of 20 makes
+    that stride truncate wrong -- e.g. 30 fps gives ``int(30/20) == 1`` (no
+    downsampling), so clips would silently train 1.5x too fast. Keep this at 20
+    (or another multiple of 20) unless a different downstream consumer needs it."""
 
     min_clip_frames: int = 30
     """Drop motion snippets shorter than this after HMR (too short to be useful)."""

@@ -1,0 +1,13 @@
+# Keep the build context (and image) slim: state + caches live in mounted volumes.
+.git
+work/
+dropzone/*
+!dropzone/.gitkeep
+models/
+repos/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/

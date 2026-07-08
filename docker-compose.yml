@@ -1,0 +1,43 @@
+# One isolated service; state lives in mounted volumes so nothing pollutes the
+# host and reruns are offline. First time:
+#
+#   docker compose build
+#   docker compose run --rm pipeline setup --backend gvhmr --method momask
+#   # (place your gated SMPL models under ./models/ -- see docker/README.md)
+#   docker compose run --rm pipeline all
+#
+# Drop your videos in ./dropzone. Outputs land in ./work.
+services:
+  pipeline:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: videotomocap:latest
+    # GPU passthrough (needs the NVIDIA Container Toolkit on the host).
+    # Comment this block out to run the GPU-free stages on a CPU-only host.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      - ./dropzone:/workspace/dropzone     # your input videos
+      - ./work:/workspace/work             # manifest, dataset, checkpoints
+      - ./configs:/workspace/configs       # editable configs
+      - ./models:/opt/models               # gated SMPL models + cached weights (NEVER in the image)
+      - ./models/.cache:/root/.cache       # CLIP / torch-hub / misc runtime caches (persist across runs)
+      - ./repos:/opt/repos                 # cloned upstream repos (GVHMR/MoMask/...)
+    environment:
+      - VIDEO_CONFIG=configs/dropzone.yaml
+      - MODEL_CONFIG=configs/motion_model.yaml
+      # Your OWN MPI credentials so `setup` can auto-download the gated SMPL-H
+      # (register once at mano.is.tue.mpg.de). Left unset -> setup prints manual
+      # instructions instead. Prefer an .env file / secret over inlining here.
+      # - MANO_USERNAME=${MANO_USERNAME:-}
+      # - MANO_PASSWORD=${MANO_PASSWORD:-}
+      # After `setup`, run stages offline: uncomment these AND pass `--network none`
+      # (e.g. `docker compose run --rm --network none pipeline all`) for a hard guarantee.
+      # - HF_HUB_OFFLINE=1
+      # - TRANSFORMERS_OFFLINE=1

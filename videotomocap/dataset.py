@@ -42,6 +42,15 @@ def to_amass_npz(motion: SmplMotion, gender: str = "neutral") -> Dict[str, np.nd
     intentionally dropped in favour of articulated MANO hands when we have them;
     otherwise the hand slots stay neutral (zero).
     """
+    # AMASS is world-grounded; HumanML3D's floor-alignment + face-forward
+    # canonicalization assumes it. A camera-relative clip exported here would
+    # pass silently and produce garbage features downstream, so refuse it loudly.
+    if motion.frame != "global":
+        raise ValueError(
+            f"to_amass_npz needs a world-grounded clip (frame='global'); got "
+            f"frame={motion.frame!r}. Set use_frame='global' on the backend so the "
+            "AMASS export is world-frame, or don't feed incam motion to the dataset."
+        )
     t = motion.n_frames
     poses = np.zeros((t, AMASS_SMPLH_POSE_DIM), np.float32)
     poses[:, :SMPLH_BODY_END] = motion.poses[:, :SMPLH_BODY_END]  # global_orient + 21 body joints
