@@ -12,8 +12,13 @@ Individual steps, each reading the same config:
     python -m motion_model info         # what the configured method will do
     python -m motion_model prepare      # AMASS dataset -> this method's training data
     python -m motion_model train        # prepare (if needed) then launch training
+    python -m motion_model autoscale       # data-driven regime + num_steps for the corpus
     python -m motion_model overfit-check   # pre-flight overfitting risk (per-donor, no GPU)
     python -m motion_model overfit-report  # post-train: best pre-overfit checkpoint
+
+One config, any scale: set ``auto_scale: true`` to adapt num_steps/regime to the
+corpus and ``early_stop: true`` (with ``eval_every``) to stop at the overfitting
+onset -- the same YAML then works for 100 hours or a server's corpus.
 """
 
 from __future__ import annotations
@@ -107,10 +112,40 @@ def cmd_train(args) -> int:
     if not args.skip_prepare:
         print(f"Preparing data for method={cfg.method} ...")
         trainer.prepare()
-    _print_overfit_risk(cfg)   # surface the risk BEFORE spending GPU time
+    if cfg.auto_scale:
+        _apply_auto_scale(cfg)     # adapt num_steps/regime to the corpus (same config, any scale)
+    _print_overfit_risk(cfg)       # surface the risk BEFORE spending GPU time
+    if cfg.early_stop and cfg.eval_every <= 0:
+        print("  NOTE: early_stop is on but eval_every=0 -- no val curve will be logged, so it "
+              "can't trigger. Set eval_every>0.")
     print(f"Training method={cfg.method} ...")
     save = trainer.train()
     print(f"Checkpoints: {save}")
+    return 0
+
+
+def _apply_auto_scale(cfg) -> None:
+    """Apply the data-driven training plan to the config (best-effort; needs an index)."""
+    from . import autoscale
+
+    try:
+        index = data.load_index(cfg.dataset_dir)
+    except FileNotFoundError:
+        print("  auto_scale: no dataset index yet -- skipping (run prepare/build first)")
+        return
+    plan = autoscale.plan_training(cfg, index)
+    applied = autoscale.apply_plan(cfg, plan)
+    print(autoscale.format_plan(plan, applied))
+
+
+def cmd_autoscale(args) -> int:
+    """Show the data-driven training plan for the corpus (no training)."""
+    from . import autoscale
+
+    cfg = _cfg(args)
+    index = data.load_index(cfg.dataset_dir)
+    plan = autoscale.plan_training(cfg, index)
+    print(autoscale.format_plan(plan, ["(preview -- run `train` with auto_scale to apply)"]))
     return 0
 
 
@@ -170,6 +205,9 @@ def build_parser() -> argparse.ArgumentParser:
     tr.add_argument("--skip-prepare", action="store_true", help="assume prepare already ran")
     tr.set_defaults(func=cmd_train)
 
+    sub.add_parser("autoscale",
+                   help="preview the data-driven training plan (regime + num_steps) for the corpus"
+                   ).set_defaults(func=cmd_autoscale)
     sub.add_parser("overfit-check",
                    help="pre-flight: estimate overfitting risk (per-donor aware, no GPU)"
                    ).set_defaults(func=cmd_overfit_check)

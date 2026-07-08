@@ -127,9 +127,24 @@ class MotionModelConfig:
     --eval_during_training --eval_split test (needs the t2m evaluator bundle present)."""
 
     early_stop_patience: int = 5
-    """`overfit-report` only: how many successive val-worsening evals after the minimum
-    count as a real overfitting onset (vs curve noise). Not an in-loop early stop -- the
-    upstream trainers run their full num_steps; this picks the checkpoint to keep."""
+    """How many successive val-worsening evals after the minimum count as a real
+    overfitting onset (vs curve noise). Used by `overfit-report` AND, when
+    ``early_stop`` is on, to actually terminate training at the onset."""
+
+    auto_scale: bool = False
+    """Adapt the training regime to the measured corpus (num_steps scaled to data
+    volume, personalization/warm-start/method recommended) so ONE config works from
+    100 hours to a server's corpus. Applies the safe knobs, prints the rest. See
+    motion_model/autoscale.py."""
+
+    early_stop: bool = False
+    """Actually stop training at the overfitting onset (not just report it): the run
+    is monitored and the trainer subprocess is terminated once the val curve turns up
+    for ``early_stop_patience`` evals. Needs ``eval_every`` on so a val curve exists.
+    Generator methods only. See motion_model/earlystop.py."""
+
+    early_stop_poll_s: float = 30.0
+    """How often (seconds) the early-stop monitor re-reads the val curve while training."""
 
     # --- Physics controller (protomotions / closd) ----------------------
     simulator: str = "isaaclab"
@@ -183,6 +198,12 @@ class MotionModelConfig:
     def checkpoint_dir(self) -> Path:
         """Where the upstream trainer writes checkpoints for this run."""
         return self.work_root / self.method / "checkpoints"
+
+    @property
+    def metrics_path(self) -> Path:
+        """Val curve the early-stop monitor / overfit-report read. The trainer should
+        write it here (JSONL/CSV: step, train_loss, val_loss); noop does."""
+        return self.checkpoint_dir / "metrics.jsonl"
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize to a plain dict, stringifying Paths (JSON/YAML-friendly)."""

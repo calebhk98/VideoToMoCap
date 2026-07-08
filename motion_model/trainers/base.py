@@ -69,6 +69,28 @@ class MotionTrainer(ABC):
         except subprocess.CalledProcessError as exc:
             raise TrainerError(f"{self.name} exited with status {exc.returncode} on: {printable}") from exc
 
+    def _run_train(self, cmd: List[str], cwd: Optional[Path], metrics_path: Path) -> None:
+        """Launch the training command, under the early-stop monitor when enabled.
+
+        When ``early_stop`` is off this is exactly ``_run_cmd`` (so nothing changes and
+        the command-construction tests still capture here). When on, the run is
+        monitored and terminated at the overfitting onset -- see earlystop.py.
+        """
+        if not getattr(self.cfg, "early_stop", False):
+            self._run_cmd(cmd, cwd=cwd)
+            return
+        from .. import earlystop
+
+        printable = " ".join(str(c) for c in cmd)
+        print(f"  $ {printable}   (early-stop monitored)")
+        result = earlystop.run_with_monitor(
+            cmd, metrics_path=metrics_path, cwd=cwd, env=self._subprocess_env(),
+            patience=self.cfg.early_stop_patience, poll_interval=self.cfg.early_stop_poll_s)
+        if result.stopped:
+            print(f"  early-stopped at overfitting onset; keep the checkpoint near step {result.best_step}")
+        elif result.returncode not in (0, None):
+            raise TrainerError(f"{self.name} exited with status {result.returncode} on: {printable}")
+
     def _mdm_eval_flags(self) -> List[str]:
         """Overfitting-guard flags for the MDM-family trainers (mdm, closd).
 

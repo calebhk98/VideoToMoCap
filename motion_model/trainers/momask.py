@@ -55,7 +55,7 @@ class MoMaskTrainer(MotionTrainer):
             "--max_epoch", str(max(1, self.cfg.num_steps // 1000)),
             *self.cfg.extra_args,
         ]
-        self._run_cmd(cmd, cwd=repo)
+        self._run_train(cmd, repo, self.cfg.metrics_path)   # early-stop when enabled
         print(
             "  RVQ stage launched. When it converges, train the generator stages:\n"
             f"    python train_t2m_transformer.py --name {name}_trans --vq_name {name}_rvq ...\n"

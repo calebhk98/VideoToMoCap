@@ -66,5 +66,5 @@ class MDMTrainer(MotionTrainer):
             cmd += ["--resume_checkpoint", str(ckpt)]
         cmd += self._mdm_eval_flags()   # save_every/eval_every -> the overfitting guard
         cmd.extend(self.cfg.extra_args)
-        self._run_cmd(cmd, cwd=repo)
+        self._run_train(cmd, repo, self.cfg.metrics_path)   # early-stop when enabled
         return save

@@ -60,6 +60,34 @@ caption)` pair per segment). `prepare` then reads each clip's `caption` field an
 writes real `texts/<clip_id>.txt` automatically; without that field it falls back
 to a loader-valid placeholder (so you can still hand-fill `texts/`).
 
+## One config, any scale (`auto_scale` + `early_stop`)
+
+The same YAML should work whether you point it at 100 hours of your own footage or a
+server's corpus — you shouldn't hand-tune per dataset. Two switches make it adaptive:
+
+```yaml
+auto_scale: true      # size the run to the corpus (num_steps + regime)
+early_stop: true      # actually stop at the overfitting onset (needs eval_every > 0)
+eval_every: 2000
+```
+
+- **`auto_scale`** (`motion_model/autoscale.py`, preview with `python -m motion_model
+  autoscale`) measures the prepared corpus and picks the regime it can support:
+  `num_steps` scaled to data volume (≈40 passes over the frames, clamped), and
+  `personalize-tiny → finetune → large-corpus` selecting LoRA-vs-full, warm-start-vs-
+  scratch, and the recommended method. It **applies** the safe knobs (`num_steps`, and
+  `personalization` where the method supports it) and **prints** the rest, because
+  switching method or warm-starting needs a repo/checkpoint it can't conjure.
+  *Honest limit:* the generators are fixed-size (MoMask ~44M, MDM ~35M) — you can't
+  grow a transformer's width without discarding the prior — so this scales the
+  *regime*, not the parameter count.
+- **`early_stop`** (`motion_model/earlystop.py`) does real early stopping the only way
+  an orchestration layer can: the upstream trainers run their full `num_steps` and
+  never self-stop, so the run is monitored and the **trainer subprocess is terminated**
+  once the val curve turns up for `early_stop_patience` evals — then you keep the best
+  checkpoint. This is why `num_steps` from `auto_scale` is just a ceiling: the data
+  decides the real stopping point. Needs `eval_every > 0` so a val curve exists.
+
 ## Overfitting guard
 
 Training happens inside the upstream loop (a subprocess), so this package can't
