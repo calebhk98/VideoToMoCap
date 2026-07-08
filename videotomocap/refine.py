@@ -1,4 +1,12 @@
-"""Pure-NumPy post-processing refinements for a recovered :class:`SmplMotion`.
+"""Post-processing refinements for a recovered :class:`SmplMotion`.
+
+Everything in *this* module is pure NumPy signal processing -- no weights, no GPU
+-- which is why it can run inline in the pipeline on any machine. That's a
+property of these particular passes, not a rule that refinement must avoid
+learned models: an optional, off-by-default learned pass (DPoser-X pose prior)
+lives in ``refine_learned.py`` and shells out to its own env, selected via
+``refine_method: dposer``. Keep the heavy path over there so this file stays
+laptop-readable.
 
 Two ideas from the research watchlist (``RESEARCH_WATCHLIST.md``) are tractable
 *today*, without training anything or touching a GPU, because they are just
@@ -414,21 +422,29 @@ def refine_motion(
     vel_thresh: float = 0.02,
     min_duration: float = 0.2,
     damping: float = 0.7,
+    dposer: object = None,
 ) -> SmplMotion:
     """Apply the enabled refinement passes and return a new :class:`SmplMotion`.
 
     ``method`` picks the de-jitter: 'savgol' (uniform local polynomial fit),
     'variational' (global acceleration-penalized least squares -- the HTD-Refine
-    objective), or 'confidence' (per-joint adaptive SG, smoothing each joint by
-    its own local jitter; ``kappa`` sets the accel knee, ``strength`` caps it).
+    objective), 'confidence' (per-joint adaptive SG, smoothing each joint by its
+    own local jitter; ``kappa`` sets the accel knee, ``strength`` caps it), or
+    'dposer' (a learned DPoser-X pose prior; heavy, opt-in -- pass ``dposer=cfg``,
+    which supplies ``dposer_repo``/``dposer_python``/etc. See ``refine_learned``).
     Order matters: de-jitter first (so drift detection sees clean velocities),
     then anti-drift. Either pass can be disabled; always returns a fresh object
     (the input is never mutated, even when both passes are off).
     """
-    if method not in ("savgol", "variational", "confidence"):
-        raise ValueError(f"refine method must be 'savgol', 'variational', or 'confidence', got {method!r}")
+    if method not in ("savgol", "variational", "confidence", "dposer"):
+        raise ValueError(f"refine method must be 'savgol', 'variational', 'confidence', or 'dposer', got {method!r}")
     out = motion
-    if smooth and method == "variational":
+    if smooth and method == "dposer":
+        if dposer is None:
+            raise ValueError("refine_method='dposer' needs the pipeline config passed as dposer=cfg")
+        from .refine_learned import dposer_refine  # heavy path: import only when selected
+        out = dposer_refine(out, dposer)
+    elif smooth and method == "variational":
         out = variational_smooth(out, lam=lam, window=max(window, 32), smooth_hands=smooth_hands)
     elif smooth and method == "confidence":
         out = confidence_dejitter(out, window=window, polyorder=polyorder, kappa=kappa, max_strength=strength, smooth_hands=smooth_hands)

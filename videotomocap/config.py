@@ -140,6 +140,24 @@ class PipelineConfig:
     aggressively (more joints treated as noisy); higher = only the jerkiest joints
     are touched. Ignored by the other refine methods."""
 
+    # --- Learned refinement (refine_method: dposer) ----------------------
+    # Heavy, opt-in: the DPoser-X pose prior runs in its OWN env as a subprocess
+    # (see videotomocap/refine_learned.py). Unused unless refine_method='dposer'.
+    dposer_repo: Optional[Path] = None
+    """Cloned DPoser-X checkout (moonbow721/DPoser-X). Required for the 'dposer'
+    refine method; the bridging driver runs with this as its working directory."""
+
+    dposer_python: Optional[str] = None
+    """Interpreter for the DPoser-X env (its deps pin torch 1.12.1 / CUDA 11.3).
+    Falls back to 'python' on PATH."""
+
+    dposer_config: str = "configs/body/subvp/timefc.py"
+    """DPoser-X model config (relative to ``dposer_repo``) selecting the prior."""
+
+    dposer_strength: float = 1.0
+    """Blend of the denoised pose vs the original for 'dposer' (0 = off/no-op,
+    1 = fully replace with the prior's output)."""
+
     auto_mirror: str = "off"
     """Automatic left/right-mirror handling for flipped (e.g. selfie) footage,
     detected corpus-relative from handedness (no per-video tags). One of:
@@ -253,6 +271,8 @@ class PipelineConfig:
             self.backend_repo = Path(self.backend_repo)
         if self.hand_repo is not None:
             self.hand_repo = Path(self.hand_repo)
+        if self.dposer_repo is not None:
+            self.dposer_repo = Path(self.dposer_repo)
         if self.use_frame not in ("global", "incam"):
             raise ValueError(f"use_frame must be 'global' or 'incam', got {self.use_frame!r}")
         # YAML parses bare off/on/yes/no as booleans, so `auto_mirror: off` arrives

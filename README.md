@@ -198,7 +198,12 @@ NumPy (no weights, no GPU), and default to non-destructive `flag` unless noted.
   (global smoother minimizing `‖x−y‖² + λ‖accel(x)‖²`), or `confidence` (per-joint
   adaptive: smooths each joint in proportion to its own local jitter — denoises
   inferred/occluded joints hard while leaving cleanly-tracked ones sharp; knee set
-  by `confidence_kappa`). See `videotomocap/refine.py`.
+  by `confidence_kappa`). These three are pure NumPy (`videotomocap/refine.py`). A
+  fourth, `dposer`, is a **learned** pass — a [DPoser-X](https://github.com/moonbow721/DPoser-X)
+  diffusion pose prior that pulls poses toward a plausible manifold. It's heavy
+  and opt-in: it runs in its own env as a subprocess (`videotomocap/refine_learned.py`
+  + `scripts/dposer_refine.py`), off unless you set `refine_method: dposer` and
+  point `dposer_repo`/`dposer_python` at a DPoser-X checkout.
 - **`auto_mirror`** (`off`/`flag`/`correct`) — some clips (front-camera selfies)
   are horizontally flipped, corrupting handedness. There's no metadata flag and a
   mirrored person still looks valid, so the pipeline scores each clip's handedness
@@ -289,7 +294,8 @@ videotomocap/
   pipeline.py          orchestration (scan→hmr→refine→anonymize→build), parallel+resumable
   gpu.py               GPU auto-detection + worker/device resolution
   regions.py           body regions → SMPL joints (occlusion tagging)
-  refine.py            optional post-proc: temporal de-jitter + anti-drift
+  refine.py            optional post-proc: temporal de-jitter + anti-drift (pure NumPy)
+  refine_learned.py    optional learned refine (DPoser-X prior; opt-in, own env)
   mirror.py            auto left/right-mirror detection + correction
   quality.py           auto clip-quality assessment (teleports/jumps/NaN/static)
   cluster.py           unsupervised motion clusters (action pseudo-labels)
