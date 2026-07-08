@@ -422,28 +422,32 @@ def refine_motion(
     vel_thresh: float = 0.02,
     min_duration: float = 0.2,
     damping: float = 0.7,
-    dposer: object = None,
+    cfg: object = None,
+    video: object = None,
 ) -> SmplMotion:
     """Apply the enabled refinement passes and return a new :class:`SmplMotion`.
 
-    ``method`` picks the de-jitter: 'savgol' (uniform local polynomial fit),
-    'variational' (global acceleration-penalized least squares -- the HTD-Refine
-    objective), 'confidence' (per-joint adaptive SG, smoothing each joint by its
-    own local jitter; ``kappa`` sets the accel knee, ``strength`` caps it), or
-    'dposer' (a learned DPoser-X pose prior; heavy, opt-in -- pass ``dposer=cfg``,
-    which supplies ``dposer_repo``/``dposer_python``/etc. See ``refine_learned``).
-    Order matters: de-jitter first (so drift detection sees clean velocities),
-    then anti-drift. Either pass can be disabled; always returns a fresh object
-    (the input is never mutated, even when both passes are off).
+    ``method`` picks the smoothing pass. Three are pure-NumPy (this module):
+    'savgol' (uniform local polynomial fit), 'variational' (global
+    acceleration-penalized least squares -- the HTD-Refine objective), and
+    'confidence' (per-joint adaptive SG, smoothing each joint by its own local
+    jitter; ``kappa`` sets the accel knee, ``strength`` caps it). The rest are
+    learned passes in ``refine_learned`` ('dposer', 'scorehmr'), heavy and opt-in
+    -- pass ``cfg=<PipelineConfig>`` (which supplies their repo/python/strength
+    knobs) and ``video=<clip path>`` for the image-guided ones. Order matters:
+    de-jitter first (so drift detection sees clean velocities), then anti-drift.
+    Either pass can be disabled; always returns a fresh object (the input is never
+    mutated, even when both passes are off).
     """
-    if method not in ("savgol", "variational", "confidence", "dposer"):
-        raise ValueError(f"refine method must be 'savgol', 'variational', 'confidence', or 'dposer', got {method!r}")
+    from .refine_learned import available_refiners, learned_refine  # cheap: no torch at import
+    learned = set(available_refiners())
+    if method not in {"savgol", "variational", "confidence"} | learned:
+        raise ValueError(f"unknown refine method {method!r} (methods: savgol, variational, confidence, {', '.join(sorted(learned))})")
     out = motion
-    if smooth and method == "dposer":
-        if dposer is None:
-            raise ValueError("refine_method='dposer' needs the pipeline config passed as dposer=cfg")
-        from .refine_learned import dposer_refine  # heavy path: import only when selected
-        out = dposer_refine(out, dposer)
+    if smooth and method in learned:
+        if cfg is None:
+            raise ValueError(f"refine_method={method!r} is a learned pass; pass the config as cfg=<PipelineConfig>")
+        out = learned_refine(out, cfg, method, video=video)
     elif smooth and method == "variational":
         out = variational_smooth(out, lam=lam, window=max(window, 32), smooth_hands=smooth_hands)
     elif smooth and method == "confidence":

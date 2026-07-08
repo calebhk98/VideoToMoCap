@@ -158,6 +158,17 @@ class PipelineConfig:
     """Blend of the denoised pose vs the original for 'dposer' (0 = off/no-op,
     1 = fully replace with the prior's output)."""
 
+    scorehmr_repo: Optional[Path] = None
+    """Cloned ScoreHMR checkout (statho/ScoreHMR). Required for the 'scorehmr'
+    refine method. Unlike 'dposer', ScoreHMR is image-guided -- it re-reads the
+    source video -- so it only runs during the ``hmr`` stage."""
+
+    scorehmr_python: Optional[str] = None
+    """Interpreter for the ScoreHMR env. Falls back to 'python' on PATH."""
+
+    scorehmr_strength: float = 1.0
+    """Blend of ScoreHMR's refined pose vs the original (0 = off/no-op, 1 = full)."""
+
     auto_mirror: str = "off"
     """Automatic left/right-mirror handling for flipped (e.g. selfie) footage,
     detected corpus-relative from handedness (no per-video tags). One of:
@@ -273,6 +284,8 @@ class PipelineConfig:
             self.hand_repo = Path(self.hand_repo)
         if self.dposer_repo is not None:
             self.dposer_repo = Path(self.dposer_repo)
+        if self.scorehmr_repo is not None:
+            self.scorehmr_repo = Path(self.scorehmr_repo)
         if self.use_frame not in ("global", "incam"):
             raise ValueError(f"use_frame must be 'global' or 'incam', got {self.use_frame!r}")
         # YAML parses bare off/on/yes/no as booleans, so `auto_mirror: off` arrives

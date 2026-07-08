@@ -198,12 +198,24 @@ NumPy (no weights, no GPU), and default to non-destructive `flag` unless noted.
   (global smoother minimizing `‖x−y‖² + λ‖accel(x)‖²`), or `confidence` (per-joint
   adaptive: smooths each joint in proportion to its own local jitter — denoises
   inferred/occluded joints hard while leaving cleanly-tracked ones sharp; knee set
-  by `confidence_kappa`). These three are pure NumPy (`videotomocap/refine.py`). A
-  fourth, `dposer`, is a **learned** pass — a [DPoser-X](https://github.com/moonbow721/DPoser-X)
-  diffusion pose prior that pulls poses toward a plausible manifold. It's heavy
-  and opt-in: it runs in its own env as a subprocess (`videotomocap/refine_learned.py`
-  + `scripts/dposer_refine.py`), off unless you set `refine_method: dposer` and
-  point `dposer_repo`/`dposer_python` at a DPoser-X checkout.
+  by `confidence_kappa`). These three are pure NumPy (`videotomocap/refine.py`).
+  Two more are **learned** passes (`videotomocap/refine_learned.py`), heavy and
+  opt-in — each runs in its own env as a subprocess, off unless selected, and
+  swapped by one config line:
+  - `dposer` — [DPoser-X](https://github.com/moonbow721/DPoser-X) diffusion pose
+    prior; motion-only, so it works after any backend. Set `dposer_repo` /
+    `dposer_python`.
+  - `scorehmr` — [ScoreHMR](https://github.com/statho/ScoreHMR) diffusion
+    *image-guided* refinement; re-reads the source video for reprojection
+    guidance, so it only runs in the `hmr` stage. Set `scorehmr_repo` /
+    `scorehmr_python`.
+
+  ```yaml
+  refine: true
+  refine_method: dposer     # savgol | variational | confidence | dposer | scorehmr
+  dposer_repo: /opt/DPoser-X
+  dposer_python: /opt/miniconda3/envs/dposer/bin/python
+  ```
 - **`auto_mirror`** (`off`/`flag`/`correct`) — some clips (front-camera selfies)
   are horizontally flipped, corrupting handedness. There's no metadata flag and a
   mirrored person still looks valid, so the pipeline scores each clip's handedness
@@ -295,7 +307,7 @@ videotomocap/
   gpu.py               GPU auto-detection + worker/device resolution
   regions.py           body regions → SMPL joints (occlusion tagging)
   refine.py            optional post-proc: temporal de-jitter + anti-drift (pure NumPy)
-  refine_learned.py    optional learned refine (DPoser-X prior; opt-in, own env)
+  refine_learned.py    optional learned refine (DPoser-X / ScoreHMR; opt-in, own env)
   mirror.py            auto left/right-mirror detection + correction
   quality.py           auto clip-quality assessment (teleports/jumps/NaN/static)
   cluster.py           unsupervised motion clusters (action pseudo-labels)

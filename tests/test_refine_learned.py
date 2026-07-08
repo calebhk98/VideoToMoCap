@@ -1,10 +1,10 @@
 """Tests for the learned-refine plumbing (videotomocap/refine_learned.py).
 
-The DPoser-X model itself needs a GPU + weights, but everything *around* it --
-writing our npz contract, invoking a runner, reading the result back, blending,
-no-op guards, error handling -- is pure Python and must stay GPU-free. We inject a
-fake runner (a stand-in for the subprocess) so the whole round-trip is exercised
-without any weights, mirroring how the `noop` backend covers the backend flow.
+The DPoser-X / ScoreHMR models need a GPU + weights, but everything *around* them
+-- writing our npz contract, invoking a runner, reading the result back, blending,
+no-op guards, error handling, method dispatch -- is pure Python and must stay
+GPU-free. We inject a fake runner (a stand-in for the subprocess) so the whole
+round-trip is exercised without weights, mirroring how `noop` covers backends.
 
 Runs under pytest OR directly: `python tests/test_refine_learned.py`.
 """
@@ -20,7 +20,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from videotomocap.pose import MANO_POSE_DIM, SmplMotion
 from videotomocap.refine import refine_motion
-from videotomocap.refine_learned import LearnedRefineError, dposer_refine
+from videotomocap.refine_learned import (
+    LearnedRefineError,
+    available_refiners,
+    dposer_refine,
+    learned_refine,
+    scorehmr_refine,
+)
 
 
 def assert_raises(exc, fn):
@@ -32,12 +38,15 @@ def assert_raises(exc, fn):
 
 
 class _Cfg:
-    """Minimal duck-typed stand-in for PipelineConfig's dposer_* fields."""
+    """Minimal duck-typed stand-in for PipelineConfig's learned-refine fields."""
     def __init__(self, **kw):
-        self.dposer_strength = kw.get("strength", 1.0)
-        self.dposer_repo = kw.get("repo", "/tmp")
+        self.dposer_strength = kw.get("dposer_strength", 1.0)
+        self.dposer_repo = kw.get("dposer_repo", "/tmp")
         self.dposer_python = None
         self.dposer_config = "configs/body/subvp/timefc.py"
+        self.scorehmr_strength = kw.get("scorehmr_strength", 1.0)
+        self.scorehmr_repo = kw.get("scorehmr_repo", "/tmp")
+        self.scorehmr_python = None
         self.cuda_device = None
 
 
@@ -55,54 +64,76 @@ def _motion(n=20, seed=0, hands=False):
 
 
 def _fake_runner(payload_transform):
-    """Build a runner that loads our input npz, transforms it, writes our output."""
-    def runner(cfg, in_path, out_path):
+    """Build a 2-arg runner that loads our input npz, transforms it, writes output."""
+    def runner(in_path, out_path):
         data = dict(np.load(in_path))
         np.savez(out_path, **payload_transform(data))
     return runner
+
+
+def test_available_refiners_lists_both():
+    assert available_refiners() == ["dposer", "scorehmr"]
 
 
 def test_dposer_refine_round_trip_and_blend():
     m = _motion(hands=True)
     # Fake model: return all-zeros. With strength=0.5 the output is halfway there.
     runner = _fake_runner(lambda d: {k: np.zeros_like(v) for k, v in d.items()})
-    out = dposer_refine(m, _Cfg(strength=0.5), runner=runner)
+    out = dposer_refine(m, _Cfg(dposer_strength=0.5), runner=runner)
     assert np.allclose(out.poses, 0.5 * m.poses, atol=1e-6)
     assert np.allclose(out.left_hand_pose, 0.5 * m.left_hand_pose, atol=1e-6)
     assert np.array_equal(out.trans, m.trans)          # trans is never touched
-    assert out.meta["refine_learned"] == "dposer" and out.meta["dposer_strength"] == 0.5
+    assert out.meta["refine_learned"] == "dposer" and out.meta["refine_strength"] == 0.5
 
 
-def test_dposer_refine_noop_when_strength_zero_or_too_short():
+def test_scorehmr_refine_round_trip_and_needs_video():
+    m = _motion()
+    runner = _fake_runner(lambda d: {"poses": np.zeros_like(d["poses"])})
+    out = scorehmr_refine(m, _Cfg(scorehmr_strength=1.0), video=Path("clip.mp4"), runner=runner)
+    assert np.allclose(out.poses, 0.0) and out.meta["refine_learned"] == "scorehmr"
+    # image-guided: without an injected runner and without a video it must refuse
+    assert_raises(LearnedRefineError, lambda: scorehmr_refine(m, _Cfg(), video=None))
+
+
+def test_learned_refine_dispatch_and_unknown():
+    m = _motion()
+    runner = _fake_runner(lambda d: {"poses": np.zeros_like(d["poses"])})
+    out = learned_refine(m, _Cfg(), "dposer", runner=runner)
+    assert out.meta["refine_learned"] == "dposer"
+    assert_raises(LearnedRefineError, lambda: learned_refine(m, _Cfg(), "nope"))
+
+
+def test_learned_refine_noop_when_strength_zero_or_too_short():
     m = _motion()
     called = []
     runner = _fake_runner(lambda d: called.append(1) or d)
-    same = dposer_refine(m, _Cfg(strength=0.0), runner=runner)
+    same = dposer_refine(m, _Cfg(dposer_strength=0.0), runner=runner)
     assert np.array_equal(same.poses, m.poses) and not called   # runner never invoked
     short = SmplMotion(poses=m.poses[:1], trans=m.trans[:1], fps=30.0)
     assert np.array_equal(dposer_refine(short, _Cfg(), runner=runner).poses, short.poses[:1])
 
 
-def test_dposer_refine_errors_on_bad_output():
+def test_learned_refine_errors_on_bad_output():
     m = _motion()
-    no_out = lambda cfg, i, o: None                                    # writes nothing
+    no_out = lambda i, o: None                                        # writes nothing
     assert_raises(LearnedRefineError, lambda: dposer_refine(m, _Cfg(), runner=no_out))
-    wrong = _fake_runner(lambda d: {"poses": d["poses"][:, :30]})      # wrong shape
+    wrong = _fake_runner(lambda d: {"poses": d["poses"][:, :30]})     # wrong shape
     assert_raises(LearnedRefineError, lambda: dposer_refine(m, _Cfg(), runner=wrong))
-    missing = _fake_runner(lambda d: {"trans": np.zeros((5, 3))})      # no 'poses'
+    missing = _fake_runner(lambda d: {"trans": np.zeros((5, 3))})     # no 'poses'
     assert_raises(LearnedRefineError, lambda: dposer_refine(m, _Cfg(), runner=missing))
 
 
-def test_dposer_refine_missing_repo_raises():
+def test_learned_refine_missing_repo_raises():
     cfg = _Cfg()
     cfg.dposer_repo = None
     assert_raises(LearnedRefineError, lambda: dposer_refine(_motion(), cfg))  # real runner, no repo
 
 
-def test_refine_motion_dposer_requires_cfg():
+def test_refine_motion_learned_methods_require_cfg():
     m = _motion()
-    assert_raises(ValueError, lambda: refine_motion(m, method="dposer"))       # dposer=None
-    # with a cfg + injected-free path it would run; here just prove the dispatch guard.
+    assert_raises(ValueError, lambda: refine_motion(m, method="dposer"))      # cfg=None
+    assert_raises(ValueError, lambda: refine_motion(m, method="scorehmr"))    # cfg=None
+    assert_raises(ValueError, lambda: refine_motion(m, method="bogus"))       # unknown
 
 
 def _run_all():
