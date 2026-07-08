@@ -8,6 +8,7 @@ file.  YAML is optional: if PyYAML is not installed you can still construct a
 from __future__ import annotations
 
 import dataclasses
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -24,6 +25,14 @@ def _coerce_mode(value, allowed: set, field_name: str) -> str:
     """
     if isinstance(value, bool):
         return "flag" if value else "off"
+    v = str(value).lower()
+    if v not in allowed:
+        raise ValueError(f"{field_name} must be one of {sorted(allowed)}, got {value!r}")
+    return v
+
+
+def _one_of_ci(value, allowed: set, field_name: str) -> str:
+    """Validate a plain string-enum config field (case-insensitive), failing loud."""
     v = str(value).lower()
     if v not in allowed:
         raise ValueError(f"{field_name} must be one of {sorted(allowed)}, got {value!r}")
@@ -110,6 +119,48 @@ class PipelineConfig:
     graft_wrist: bool = False
     """Compose the hand-net wrist into the body chain (advanced; see fusion.py).
     Off by default -- keeps the body's wrist and only grafts finger articulation."""
+
+    # --- Multi-person / identity (opt-in) --------------------------------
+    multi_person: bool = False
+    """Recover EVERY person in each clip (not just the dominant track) and carry
+    them through as separate per-person tracks. Off = the original single-subject
+    behavior (one motion per clip), byte-for-byte. Requires a backend that returns
+    multiple tracks (``run_tracks``); most already track everyone and just discard
+    all but one -- see the backend notes. Turning this on enables the identity +
+    consent machinery below."""
+
+    person_assignment: str = "shape"
+    """How per-clip tracks are assigned to people across the corpus (multi_person
+    only): 'shape' (cluster on SMPL betas -- needs biometric consent, see below),
+    'manual' (operator labels tracks via the CLI; no biometrics computed), or
+    'single' (every clip is assumed to be the same one person)."""
+
+    max_people: int = 0
+    """Expected number of distinct people for 'shape' assignment. 0 = auto (pick
+    the cluster count from the data). Set it when you know the family size -- it is
+    more reliable than auto and the recommended setting for a known household."""
+
+    shape_gap_ratio: float = 3.0
+    """Auto (``max_people: 0``) sensitivity: two people are split only when the jump
+    in body-shape distance between them is at least this many times the within-person
+    spread. Higher = more conservative (fewer, surer identities -- a single person's
+    natural jitter never splits); lower = splits more eagerly. Ignored when
+    ``max_people`` is set."""
+
+    consent_required: bool = True
+    """Gate the dataset on per-person consent: a track only exports if its assigned
+    person's consent is granted (see ``people.yaml``). Non-consenting / unassigned
+    tracks are handled by ``unassigned_policy``. Keep this on for real footage."""
+
+    unassigned_policy: str = "exclude"
+    """What to do at ``build`` with a track that has no consenting person assigned:
+    'exclude' (fail-closed -- drop it; the safe default) or 'include' (keep it, for
+    a single-consenting-user project where assignment is moot)."""
+
+    synthetic_people: int = 1
+    """Testing only: how many synthetic people the ``noop`` backend fabricates per
+    clip (each with a distinct fake shape). Lets the whole multi-person flow run
+    GPU-free. Ignored by real backends."""
 
     # --- Anonymization ---------------------------------------------------
     drop_shape: bool = True
@@ -294,6 +345,10 @@ class PipelineConfig:
         self.quality_filter = _coerce_mode(self.quality_filter, {"off", "flag", "exclude"}, "quality_filter")
         self.auto_occlusion = _coerce_mode(self.auto_occlusion, {"off", "flag"}, "auto_occlusion")
         self.auto_camera_motion = _coerce_mode(self.auto_camera_motion, {"off", "flag"}, "auto_camera_motion")
+        if isinstance(self.multi_person, str):
+            self.multi_person = self.multi_person.strip().lower() in ("1", "true", "yes", "on")
+        self.person_assignment = _one_of_ci(self.person_assignment, {"shape", "manual", "single"}, "person_assignment")
+        self.unassigned_policy = _one_of_ci(self.unassigned_policy, {"exclude", "include"}, "unassigned_policy")
 
     # Convenience paths -------------------------------------------------
     @property
@@ -316,6 +371,26 @@ class PipelineConfig:
         """Where the aggregated AMASS-format dataset is written."""
         return self.work_root / "dataset"
 
+    @property
+    def identity_dir(self) -> Path:
+        """Per-track SMPL betas kept for cross-clip identity (multi_person only).
+
+        This is the ONE place body shape is retained -- consent-gated, and never
+        copied into the exported dataset (the AMASS export stays shape-neutral, as
+        the self-test still asserts). It lives here so identity assignment is
+        re-runnable without re-running HMR."""
+        return self.work_root / "identity"
+
+    @property
+    def people_path(self) -> Path:
+        """The people registry + consent ledger (``people.json``; stdlib, hand-editable)."""
+        return self.work_root / "people.json"
+
+    @property
+    def consent_log_path(self) -> Path:
+        """Append-only audit trail of consent/assignment changes."""
+        return self.work_root / "consent_log.jsonl"
+
     def to_dict(self) -> Dict[str, Any]:
         """Serialize to a plain (JSON/YAML-friendly) dict, stringifying Paths."""
         d = dataclasses.asdict(self)
@@ -323,6 +398,64 @@ class PipelineConfig:
             if isinstance(v, Path):
                 d[k] = str(v)
         return d
+
+
+def _yaml_scalar(v) -> str:
+    """Render a Python default as a valid YAML (JSON-subset) scalar."""
+    if isinstance(v, Path):
+        v = str(v)
+    if isinstance(v, tuple):
+        v = list(v)
+    try:
+        return json.dumps(v)
+    except TypeError:
+        return json.dumps(str(v))
+
+
+def _yaml_template(cls, skip=()) -> str:
+    """Render a config dataclass as commented YAML: every field + its docstring.
+
+    Reads the attribute docstrings from the source so the template is always
+    complete and self-documenting -- it can't drift from the dataclass.
+    """
+    import ast
+    import inspect
+    import textwrap
+
+    body = ast.parse(textwrap.dedent(inspect.getsource(cls))).body[0].body
+    docs = {}
+    for i, node in enumerate(body):
+        if not (isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)):
+            continue
+        nxt = body[i + 1] if i + 1 < len(body) else None
+        if isinstance(nxt, ast.Expr) and isinstance(getattr(nxt, "value", None), ast.Constant) \
+                and isinstance(nxt.value.value, str):
+            docs[node.target.id] = nxt.value.value
+
+    out = []
+    for f in dataclasses.fields(cls):
+        if f.name in skip:
+            continue
+        if f.default is not dataclasses.MISSING:
+            val = f.default
+        elif f.default_factory is not dataclasses.MISSING:  # type: ignore[comparison-overlap]
+            val = f.default_factory()
+        else:
+            val = None
+        for line in textwrap.wrap(" ".join(docs.get(f.name, "").split()), 76):
+            out.append(f"# {line}")
+        out.append(f"{f.name}: {_yaml_scalar(val)}")
+        out.append("")
+    return "\n".join(out).rstrip() + "\n"
+
+
+def config_template() -> str:
+    """A fully-commented YAML template with EVERY PipelineConfig option + its docs.
+
+    ``cuda_device`` is omitted -- it is set per-run by the parallel runner, not YAML.
+    Use via ``python -m videotomocap config-template > my.yaml``.
+    """
+    return _yaml_template(PipelineConfig, skip=("cuda_device",))
 
 
 def load_config(path: str | Path) -> PipelineConfig:

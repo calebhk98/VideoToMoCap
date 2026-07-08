@@ -40,6 +40,18 @@ class HMRBackend(ABC):
         native artifacts.  ``static`` hints that the camera is fixed (skip VO).
         """
 
+    def run_tracks(self, video_path: Path, out_dir: Path, *, static: bool = False) -> List[SmplMotion]:
+        """Recover EVERY person in the clip -> one :class:`SmplMotion` per track.
+
+        The multi-person entry point. The default wraps :meth:`run` as a single
+        track, so every existing single-subject backend works unchanged and only
+        multi-person-aware backends need to override this. Backends that already
+        enumerate tracks (WHAM/TRAM/4D-Humans/TRACE follow the dominant one) should
+        override to return all of them; order is arbitrary, ids are assigned by the
+        caller. Each returned motion may carry its own ``betas`` for identity.
+        """
+        return [self.run(video_path, out_dir, static=static)]
+
     # -- helpers shared by subprocess-based backends --------------------
     def _run_cmd(self, cmd: List[str], cwd: Optional[Path] = None) -> None:
         env = self._subprocess_env()

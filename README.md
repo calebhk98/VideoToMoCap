@@ -4,8 +4,9 @@ Turn a large backlog of personal camera footage into an anonymized, AMASS-format
 motion dataset — and from there into a motion model that moves like the person in
 the video.
 
-The project is **two pipelines**; this repo builds the first end-to-end and
-scaffolds the second:
+The project is **three pipelines**; this repo builds the first end-to-end,
+scaffolds the second, and adds an independent captioning/search pipeline over the
+same footage:
 
 1. **Data pipeline — video → anonymized motion data** (`videotomocap/`).
    Recover human motion from footage, strip body identity (drop SMPL `betas`),
@@ -13,10 +14,19 @@ scaffolds the second:
 2. **Motion model — data → an agent that moves like you** (`motion_model/`).
    Fine-tune a small motion-diffusion model on that dataset. Bridged and
    documented; the heavy training runs in the upstream MDM repo.
+3. **Archive captioning & search — video → searchable captions → a video-native
+   captioner** (`videocaption/`). Segment, caption per-frame (JoyCaption), and
+   aggregate into a `(description, tags)` search index; then LoRA-fine-tune
+   Qwen2.5-VL on those labels so it captions a whole clip in one pass. Its light
+   layer is fully built (stdlib-only, GPU-free tests); the models are bridged.
+   Its captions can also **pair with Pipeline 1's motion** (`videotomocap
+   caption-dataset`) to train a *text-conditioned* movement model. See
+   [`videocaption/README.md`](videocaption/README.md).
 
-Everything except the two neural stages (HMR inference, motion-model training) is
-plain NumPy and runs on a laptop. Those stages shell out to upstream research
-tools behind clean adapters, so the core imports and tests with no GPU.
+Everything except the neural stages (HMR inference, motion-model training, the
+caption VLMs) is plain NumPy/stdlib and runs on a laptop. Those stages shell out
+to upstream research tools behind clean adapters, so the core imports and tests
+with no GPU.
 
 ## Quickstart
 
@@ -34,6 +44,13 @@ the whole pipeline with one command:
 
 ```bash
 python -m videotomocap run           # scan → exclude → hmr → build, all from the config
+```
+
+Every knob lives in the YAML config. For a fully-commented file listing **every**
+option with its documentation (each of the three pipelines has one):
+
+```bash
+python -m videotomocap config-template > my_config.yaml   # also: videocaption / motion_model
 ```
 
 ## Backends (HMR methods)
@@ -188,6 +205,28 @@ Mechanics and honest limits:
   disjoint `--limit`/exclusions (or split the tree per machine); each writes its
   own pose npz, then run `build` once over the merged `work/pose`.
 
+## Multiple people (a whole family)
+
+Single-subject is the default. Set **`multi_person: true`** (or `hmr --multi-person`)
+to recover *every* person per clip, cluster them into identities by body shape,
+gate each on **consent**, and export one motion dataset per person — so everyone
+in a consenting household can get a model that moves like them.
+
+```bash
+python -m videotomocap hmr --multi-person     # recover everyone (needs a multi-person backend)
+python -m videotomocap people assign          # cluster tracks -> person_00, person_01, ...
+python -m videotomocap people grant --all     # consent is fail-closed: nothing exports without it
+python -m videotomocap build                  # per-person datasets in dataset/by_person/<id>/
+python scripts/multiperson_selftest.py        # GPU-free end-to-end
+```
+
+Identity is a project-local **label**, never a stored biometric; body shape is
+retained only in a consent-gated identity store and never enters the (still
+shape-neutral) exported dataset. Consenting to participate means consenting to
+biometric use — that's the whole premise, and it's enforced (fail-closed, audit
+log, real revocation). Full design, backends, and honest caveats:
+**[`docs/MULTI_PERSON.md`](docs/MULTI_PERSON.md)**.
+
 ## Optional processing
 
 All motion-derived tags below run automatically inside `run`/`build`, are pure
@@ -303,6 +342,10 @@ videotomocap/
   ingest.py            scan footage → manifest; exclude/include clips
   pose.py              SmplMotion container; anonymize() = drop shape, keep pose
   dataset.py           aggregate → AMASS-SMPL npz + train/val split + stats
+  captioned_dataset.py bridge: slice motion at Pipeline 3's caption-segment spans → text-to-motion dataset
+  multiperson.py       opt-in multi_person plumbing (MotionUnit, consent gate, per-person export)
+  identity.py          cross-clip identity: cluster per-track betas → person_id (consent-gated store)
+  people.py            people registry + consent ledger + audit log
   pipeline.py          orchestration (scan→hmr→refine→anonymize→build), parallel+resumable
   gpu.py               GPU auto-detection + worker/device resolution
   regions.py           body regions → SMPL joints (occlusion tagging)
@@ -325,11 +368,16 @@ videotomocap/
     fusion.py          body + hand net (WiLoR/HaMeR) → SMPL-X with real hands
     noop.py            synthetic backend (no GPU) for tests/dry-runs
 motion_model/          pipeline 2: MDM fine-tuning bridge, config, and docs
+videocaption/          pipeline 3: archive captioning + search index + Qwen2.5-VL LoRA bridge
 scripts/
   selftest.py          GPU-free end-to-end test of pipeline 1
+  multiperson_selftest.py  GPU-free end-to-end test of multi_person + consent
+  caption_selftest.py  GPU-free end-to-end test of pipeline 3
+  joycaption_infer.py  driver: per-frame captioning (JoyCaption via vLLM)
+  dolphin_aggregate.py driver: frame captions → (description, tags) (Dolphin3.0)
   check_code_health.py commit-time size/indentation gate
   install_hooks.sh     enable the pre-commit hook
-tests/                 unit tests (rotation math, hands/fusion, config/ingest/CLI/parallel)
+tests/                 unit tests (rotation math, hands/fusion, config/ingest/CLI/parallel, captioning)
 configs/               example + dropzone + fusion configs
 dropzone/              drop your videos here
 RESEARCH_WATCHLIST.md  breaking papers with no usable code yet (what to watch)

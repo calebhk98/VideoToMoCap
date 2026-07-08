@@ -64,16 +64,38 @@ def write_splits(out: Path, clips: List[dict]) -> None:
     (out / "test.txt").write_text("\n".join(val) + "\n")
 
 
+def humanml3d_line(caption: str) -> str:
+    """Format a plain caption as a HumanML3D caption line the MDM loader accepts.
+
+    The line is ``text#tok/POS tok/POS ...#start#end``. MDM trains its text encoder
+    on the raw ``text`` (CLIP), so the per-word POS tags only matter to the word-level
+    t2m evaluators, not to training -- we emit a generic ``/OTHER`` tag per token
+    rather than pulling in a spaCy dependency. ``#`` and newlines are stripped so the
+    delimiter parsing stays intact.
+    """
+    text = " ".join(caption.replace("#", " ").split())
+    if not text:
+        return PLACEHOLDER_CAPTION
+    toks = " ".join(f"{w.lower()}/OTHER" for w in text.split())
+    return f"{text}#{toks}#0.0#0.0\n"
+
+
 def _caption_for(clip: dict, conditioning: str) -> str:
     """The caption line to write for a clip under the chosen conditioning mode.
 
     'action' turns Pipeline 1's unsupervised ``action_cluster`` id into a coarse
-    label so you get promptable control without hand-captioning; 'none'/'text'
-    fall back to the loader-valid placeholder (fill texts/ yourself for real text).
+    label so you get promptable control without hand-captioning; 'text' uses the
+    real per-clip ``caption`` (from the captioned-dataset bridge) when present.
+    Both fall back to the loader-valid placeholder when their signal is absent.
     """
     if conditioning == "action" and clip.get("action_cluster") is not None:
         label = f"action {clip['action_cluster']}"
         return f"{label}#{label.replace(' ', '/NOUN ')}/NUM#0.0#0.0\n"
+    if conditioning == "text" and clip.get("caption"):
+        return humanml3d_line(clip["caption"])
+    if conditioning == "person" and clip.get("person_id"):
+        # promptable "moves like <person>": the person label is the caption
+        return humanml3d_line(str(clip["person_id"]))
     return PLACEHOLDER_CAPTION
 
 

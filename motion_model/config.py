@@ -12,6 +12,7 @@ controller (protomotions/closd) uses the simulator + algorithm knobs.
 from __future__ import annotations
 
 import dataclasses
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -87,8 +88,11 @@ class MotionModelConfig:
 
     # --- Generator training (momask / mdm) ------------------------------
     conditioning: str = "none"
-    """'none' (unconditional style), 'text' (needs captions in texts/), or 'action'
-    (uses each clip's ``action_cluster`` label from Pipeline 1's index)."""
+    """'none' (unconditional style), 'text' (needs captions in texts/), 'action'
+    (uses each clip's ``action_cluster`` label), or 'person' (uses each clip's
+    ``person_id`` from Pipeline 1's multi-person export -> promptable 'moves like
+    <person>'). For a single person's model, point ``dataset_dir`` at that person's
+    ``dataset/by_person/<id>`` sub-dataset instead."""
 
     personalization: str = "full"
     """'full' fine-tune (what you asked for) or 'lora' (LoRA-MDM adapters, mdm only)."""
@@ -137,7 +141,7 @@ class MotionModelConfig:
             val = getattr(self, name)
             if val is not None:
                 setattr(self, name, Path(val))
-        self.conditioning = _one_of(self.conditioning, {"none", "text", "action"}, "conditioning")
+        self.conditioning = _one_of(self.conditioning, {"none", "text", "action", "person"}, "conditioning")
         self.personalization = _one_of(self.personalization, {"full", "lora"}, "personalization")
         self.simulator = _one_of(self.simulator, {"isaaclab", "isaacgym", "mujoco", "newton"}, "simulator")
         self.algorithm = _one_of(self.algorithm, set(PROTOMOTIONS_EXPERIMENTS), "algorithm")
@@ -170,6 +174,58 @@ class MotionModelConfig:
             if isinstance(v, Path):
                 d[k] = str(v)
         return d
+
+
+def _yaml_scalar(v) -> str:
+    """Render a Python default as a valid YAML (JSON-subset) scalar."""
+    if isinstance(v, Path):
+        v = str(v)
+    if isinstance(v, tuple):
+        v = list(v)
+    try:
+        return json.dumps(v)
+    except TypeError:
+        return json.dumps(str(v))
+
+
+def _yaml_template(cls, skip=()) -> str:
+    """Render a config dataclass as commented YAML: every field + its docstring
+    (read from the source, so the template never drifts from the dataclass)."""
+    import ast
+    import inspect
+    import textwrap
+
+    body = ast.parse(textwrap.dedent(inspect.getsource(cls))).body[0].body
+    docs = {}
+    for i, node in enumerate(body):
+        if not (isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)):
+            continue
+        nxt = body[i + 1] if i + 1 < len(body) else None
+        if isinstance(nxt, ast.Expr) and isinstance(getattr(nxt, "value", None), ast.Constant) \
+                and isinstance(nxt.value.value, str):
+            docs[node.target.id] = nxt.value.value
+
+    out = []
+    for f in dataclasses.fields(cls):
+        if f.name in skip:
+            continue
+        if f.default is not dataclasses.MISSING:
+            val = f.default
+        elif f.default_factory is not dataclasses.MISSING:  # type: ignore[comparison-overlap]
+            val = f.default_factory()
+        else:
+            val = None
+        for line in textwrap.wrap(" ".join(docs.get(f.name, "").split()), 76):
+            out.append(f"# {line}")
+        out.append(f"{f.name}: {_yaml_scalar(val)}")
+        out.append("")
+    return "\n".join(out).rstrip() + "\n"
+
+
+def config_template() -> str:
+    """Fully-commented YAML with EVERY MotionModelConfig option + its docs.
+    Use via ``python -m motion_model config-template > my.yaml``."""
+    return _yaml_template(MotionModelConfig, skip=("cuda_device",))
 
 
 def load_config(path: str | Path) -> MotionModelConfig:

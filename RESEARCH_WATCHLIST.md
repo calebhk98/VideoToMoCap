@@ -67,3 +67,30 @@ Watch **FactorizedHMR**'s repo and be ready to reimplement its torso-anchor +
 generative-limb-completion design; pair with a working occlusion-robust baseline
 today (**SAM-Body4D**) and, once released, a temporal de-drift pass
 (**HTD-Refine**). For hands under close-up framing, watch **DanceHMR**.
+
+## Multi-person & identity (2026-07 survey)
+
+For `multi_person` mode (`docs/MULTI_PERSON.md`). The `run_tracks()` contract and
+the shape-clustering assignment are wired; these are the upgrade paths.
+
+### Multi-person HMR backends (recover everyone, with tracking)
+| Model | What it adds | Code / license | Move |
+|---|---|---|---|
+| **Human3R** (arXiv 2510.06219, 2025) | Multi-person **SMPL-X** + world trajectories + camera in one online pass (~15 FPS). Best single fit for our SMPL-X-with-hands contract. | released, weights on HF; **CC-BY-NC-SA** | **Add as flagship multi-person backend** |
+| **PromptHMR** (CVPR 2025) | Mature, world-grounded, whole-body, promptable; TRAM lineage. | released; **Meshcapade non-commercial** | Add as the higher-accuracy alternative |
+| **CoMotion** (Apple, ICLR 2025) | Best-in-class concurrent tracking / ID stability through occlusion; **SMPL-only, camera-space**. | released; **Apple research-only weights** | Use if track-ID stability is the bottleneck |
+| `trace`, `hmr2`/4D-Humans (already wired) | Already multi-person + tracked, **Apache/MIT** — just promote from dominant-track to all tracks. | in repo | Cheapest permissive win: override `run_tracks` |
+
+### Cross-clip re-identification (assign tracks to a known family)
+A family is a small **closed, enrolled** gallery — 1:N verification, not open-world.
+- **InsightFace / ArcFace** — primary matcher when faces are visible; mature, offline, MIT code (NC weights).
+- **OpenGait** (SMPLGait/DeepGaitV2) — clothing-invariant gait ID; supports SMPL input directly.
+- **SOLIDER-REID / OSNet** — body-appearance ReID for faceless, same-outfit tracks.
+- **SMPL betas clustering** — the near-free cue we already use (`identity.py`); good confirmation, weak alone. Extend the assignment seam to fuse face+gait+shape.
+
+### Per-person grounded captioning ("who did what")
+Makes the caption↔motion pairing person-accurate (currently scene-level).
+- **DAM-3B-Video** (NVIDIA, ICCV 2025) — region-conditioned localized video captioning; give it a per-person mask, get that person's actions. Most on-target; Apache code, NC weights.
+- **VideoRefer / PixelRefer** (Alibaba, 2025) — object/region-level video LLM, timestamped regions; lighter 2B option.
+- **Sa2VA** (ByteDance, 2025) — SAM-2 + LLaVA, grounded segmentation + captioning; **Apache-2.0**.
+- Or extend the existing **Qwen2.5-VL** fine-tune (Apache-2.0) to ingest person boxes/IDs and emit ID-tagged timestamped captions. Split detect/track (identity) from describe (VLM) — don't ask one model to do both.

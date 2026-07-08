@@ -51,7 +51,14 @@ Body model: only the 22 body joints are used, so a neutral **SMPL-H or SMPL-X**
 works — reuse the one your HMR backend already required (no second registration).
 When fine-tuning, use the pretrained checkpoint's shipped `Mean.npy`/`Std.npy`
 (not corpus stats). Conditioning: `none` (style), `action` (reuses Pipeline 1's
-`action_cluster` labels automatically), or `text` (fill `texts/`).
+`action_cluster` labels automatically), or `text`.
+
+For `text`, point `dataset_dir` at the **captioned dataset** the Pipeline 3 bridge
+produces (`python -m videotomocap caption-dataset` — it slices each clip's motion
+at Pipeline 3's caption-segment boundaries and writes one `(motion snippet,
+caption)` pair per segment). `prepare` then reads each clip's `caption` field and
+writes real `texts/<clip_id>.txt` automatically; without that field it falls back
+to a loader-valid placeholder (so you can still hand-fill `texts/`).
 
 ## Model & training notes
 

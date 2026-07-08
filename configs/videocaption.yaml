@@ -1,0 +1,54 @@
+# Example config for Pipeline 3 -- caption a personal video archive + index it.
+#   python -m videocaption --config configs/videocaption.yaml run
+# Curated starter -- for a fully-commented file with EVERY option:
+#   python -m videocaption config-template > my_caption.yaml
+# Every field has a documented default in videocaption/config.py; override what
+# you need. The open items from the spec are the tuning knobs marked TUNE below.
+
+# --- Ingestion ---
+footage_root: footage            # the archive to caption (can be the same as Pipeline 1's)
+work_root: work/caption
+
+# --- Step 1: segmentation (scene detection + a fixed cap) ---
+scene_detect: true               # PySceneDetect natural boundaries (falls back to fixed cuts)
+scene_threshold: 27.0
+max_segment_seconds: 120         # TUNE: caption-segment cap (spec: 2 min)
+min_segment_seconds: 3           # merge sub-3s scenes into a neighbor
+
+# --- Step 2: frame extraction ---
+frame_sample_fps: 1.0            # TUNE: frames/sec sampled per segment (benchmark first)
+frame_extractor: ffmpeg          # or 'decord'
+max_frames_per_segment: 150
+
+# --- Step 3: per-frame captioning (VLM, via vLLM) ---
+captioner: joycaption            # or 'noop' (synthetic, no GPU)
+captioner_model: fancyfeast/llama-joycaption-beta-one-hf-llava
+captioner_python: python         # interpreter of the vLLM env serving JoyCaption
+caption_prompt: "Write a detailed description of this image."
+
+# --- Step 4: aggregation into (description, tags) ---
+aggregator: dolphin              # or 'noop'
+aggregator_model: cognitivecomputations/Dolphin3.0-Llama3.1-8B
+aggregator_python: python
+num_tags: 12
+caption_focus: scene            # 'scene' (who/where, for search) or 'motion' (body
+                                # actions, sharper targets for the text-to-motion bridge)
+
+# --- Step 5: search index ---
+index_format: both               # sqlite (queryable) + json (portable)
+
+# --- Step 5.5: training/inference windows ---
+window_seconds: 600              # TUNE: the model's input unit (spec: 5-15 min)
+
+# --- Step 6: video-native fine-tune (bridge; runs upstream) ---
+finetune_base: Qwen/Qwen2.5-VL-7B-Instruct
+# finetune_repo: /path/to/LLaMA-Factory     # required for the actual LoRA run
+finetune_python: python
+lora_rank: 128                   # 128-256: a capability fine-tune, not a light touch-up
+lora_alpha: 256
+finetune_epochs: 3
+merge_adapter: true              # merge LoRA into base -> one standalone checkpoint to share
+
+# --- GPU / parallelism (2x RTX 3090) ---
+gpus: auto                       # one captioner instance per card
+workers_per_gpu: 1

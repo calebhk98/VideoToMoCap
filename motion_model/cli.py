@@ -56,6 +56,14 @@ def _cfg(args) -> MotionModelConfig:
     return cfg
 
 
+def cmd_config_template(args) -> int:
+    """Print a fully-commented YAML with every config option (redirect to a file)."""
+    from .config import config_template
+
+    print(config_template(), end="")
+    return 0
+
+
 def cmd_methods(args) -> int:
     """List the selectable methods and their roles."""
     for name in available_methods():
@@ -114,6 +122,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("methods", help="list selectable methods").set_defaults(func=cmd_methods)
     sub.add_parser("info", help="show what the configured method will do").set_defaults(func=cmd_info)
+    sub.add_parser("config-template",
+                   help="print a fully-commented YAML of every config option").set_defaults(func=cmd_config_template)
     sub.add_parser("prepare", help="build the method's training data").set_defaults(func=cmd_prepare)
 
     tr = sub.add_parser("train", help="prepare + launch training")
