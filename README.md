@@ -45,9 +45,11 @@ work; the whole-body SMPL-X and `fusion` families recover articulated hands.
 | `backend:` | Kind | Hands | Notes |
 |---|---|---|---|
 | `gvhmr` `wham` `tram` | body-only | ✗ (neutral) | world-grounded (VO/SLAM); fastest bulk. **`gvhmr` is the default** (throughput leader; clean `hmr4d_results.pt` output) |
+| `trace` | body-only | ✗ (neutral) | world-grounded [TRACE](https://github.com/Arthur151/ROMP) (`pip install simple-romp`); **Apache-2.0** — the most permissive backend license |
 | `hmr2` (a.k.a. `4dhumans`) | body-only | ✗ (neutral) | [4D-Humans](https://github.com/shubham-goel/4D-Humans) HMR2, per-frame + PHALP tracking (camera-relative, not world-grounded) |
 | `smplestx` (a.k.a. `smplerx`) | whole-body SMPL-X | ✓ | recommended general whole-body model |
 | `camenduru_smplerx` (a.k.a. `camenduru`) | whole-body SMPL-X | ✓ | SMPLer-X via [camenduru's runnable repackaging](https://github.com/camenduru/SMPLer-X) |
+| `hybrik` (a.k.a. `hybrikx`) | whole-body SMPL-X | ✓ | [HybrIK-X](https://github.com/jeffffffli/HybrIK) analytical-neural IK; **MIT** license (vs non-commercial peers) |
 | `whac` | whole-body SMPL-X | ✓ | **moving-camera + world-grounded** with hands |
 | `hand4whole` | whole-body SMPL-X | ✓✓ | CVPR 2026, MIT, best single-model hands |
 | `osx` `multihmr` | whole-body SMPL-X | ✓ | MIT / fast alternatives |
@@ -293,7 +295,9 @@ videotomocap/
     base.py            HMRBackend ABC + rotation/SMPL-family conversion helpers
     gvhmr.py           default body-only: wraps GVHMR, parses hmr4d_results.pt
     wham.py  tram.py   alternative body-only world-grounded backends
+    trace.py           body-only world-grounded TRACE (simple-romp; Apache-2.0)
     fourdhumans.py     body-only HMR2 / 4D-Humans (per-frame, camera-relative)
+    hybrik.py          whole-body SMPL-X HybrIK-X (MIT)
     smplx_frames.py    whole-body SMPL-X (smplestx/camenduru_smplerx/whac/osx/hand4whole/multihmr)
     fusion.py          body + hand net (WiLoR/HaMeR) → SMPL-X with real hands
     noop.py            synthetic backend (no GPU) for tests/dry-runs

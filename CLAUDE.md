@@ -44,7 +44,9 @@ videotomocap/
   backends/
     base.py         HMRBackend ABC + rotation/SMPL conversion helpers (pure NumPy).
     gvhmr/wham/tram Body-only backends (fast; hands zero-padded).
+    trace.py        Body-only world-grounded TRACE (simple-romp; Apache-2.0).
     fourdhumans.py  Body-only HMR2 / 4D-Humans (per-frame + PHALP; camera-relative).
+    hybrik.py       Whole-body SMPL-X HybrIK-X (analytical-neural IK; MIT).
     smplx_frames.py Whole-body SMPL-X backends (smplestx/camenduru_smplerx/whac/osx/hand4whole/
                     multihmr) — one per-frame SMPL-X parser, recovers hands.
     fusion.py       Body backend + hand net (WiLoR/HaMeR) → SMPL-X with real
