@@ -1,4 +1,12 @@
-"""Pure-NumPy post-processing refinements for a recovered :class:`SmplMotion`.
+"""Post-processing refinements for a recovered :class:`SmplMotion`.
+
+Everything in *this* module is pure NumPy signal processing -- no weights, no GPU
+-- which is why it can run inline in the pipeline on any machine. That's a
+property of these particular passes, not a rule that refinement must avoid
+learned models: an optional, off-by-default learned pass (DPoser-X pose prior)
+lives in ``refine_learned.py`` and shells out to its own env, selected via
+``refine_method: dposer``. Keep the heavy path over there so this file stays
+laptop-readable.
 
 Two ideas from the research watchlist (``RESEARCH_WATCHLIST.md``) are tractable
 *today*, without training anything or touching a GPU, because they are just
@@ -242,6 +250,92 @@ def variational_smooth(
 
 
 # ---------------------------------------------------------------------------
+# Confidence-weighted de-jitter: smooth each joint by how noisy it looks
+# ---------------------------------------------------------------------------
+#
+# temporal_dejitter/variational_smooth apply ONE strength to every joint. But a
+# clip's noise is rarely uniform -- an occluded or truncated joint (which HMR
+# infers, not observes) jitters far more than a well-seen one. The idea here,
+# from confidence-weighted fusion (Optimal-state Dynamics, NeurIPS 2024 -- treat
+# the estimate as a noisy sensor and lean on the smooth prediction where it's
+# unreliable) and partial-label masking (PedGen, ICLR 2025 -- down-weight
+# untrustworthy labels rather than trust or drop them wholesale), is to make the
+# smoothing strength *per-joint* and drive it from each joint's own local
+# acceleration: trust clean joints, denoise noisy ones. Still pure NumPy, still a
+# no-op at zero strength -- just a spatially-varying version of the SG blend.
+
+
+def _confidence_weights(x: np.ndarray, kappa: float) -> np.ndarray:
+    """Per-frame, per-joint smoothing weight in [0, 1) from local acceleration.
+
+    ``x`` is ``(T, njoint*3)`` axis-angle. For each 3-vector joint we take the
+    magnitude of its second temporal difference (acceleration = the jitter scale)
+    and map it through ``a / (a + kappa)`` -- a smooth, bounded, monotonic knee:
+    ~0 for still/clean joints, →1 for very jerky ones. ``kappa`` is the
+    acceleration (rad/frame^2) at which a joint gets half its max smoothing.
+    """
+    t = x.shape[0]
+    nj = x.shape[1] // 3
+    xb = x.reshape(t, nj, 3)
+    acc = np.zeros((t, nj), dtype=np.float64)
+    if t >= 3:
+        mag = np.linalg.norm(np.diff(xb, n=2, axis=0), axis=2)  # (T-2, nj), centered on middle sample
+        acc[1:-1] = mag
+        acc[0], acc[-1] = mag[0], mag[-1]                       # borrow neighbours at the ends
+    return acc / (acc + kappa)
+
+
+def confidence_dejitter(
+    motion: SmplMotion,
+    *,
+    window: int = 9,
+    polyorder: int = 2,
+    kappa: float = 0.02,
+    max_strength: float = 1.0,
+    smooth_hands: bool = True,
+) -> SmplMotion:
+    """Adaptive Savitzky-Golay de-jitter: per-joint strength from local jitter.
+
+    Like :func:`temporal_dejitter` but the blend weight varies per joint and per
+    frame -- a joint is pulled toward its SG fit in proportion to how much it is
+    accelerating (see ``_confidence_weights``), capped at ``max_strength``. This
+    denoises inferred/occluded joints hard while leaving cleanly-tracked joints
+    nearly untouched. Rotational channels (body + hands, all radians) get the
+    adaptive treatment; ``trans`` (metres, not comparable to ``kappa``) gets a
+    uniform SG blend at ``max_strength``. No-op for clips shorter than ``window``.
+    """
+    if motion.n_frames <= window:
+        return _copy(motion)
+    coeffs = _savgol_coeffs(window, polyorder)
+
+    def adaptive(x: np.ndarray) -> np.ndarray:
+        smoothed = _savgol_apply(x, coeffs)
+        w = _confidence_weights(x, kappa) * max_strength         # (T, nj)
+        wcol = np.repeat(w, 3, axis=1)                           # (T, nj*3)
+        return ((1.0 - wcol) * x + wcol * smoothed).astype(np.float32)
+
+    def adaptive_hand(hand: Optional[np.ndarray]) -> Optional[np.ndarray]:
+        if hand is None:
+            return None
+        return adaptive(hand) if smooth_hands else hand.copy()
+
+    trans_sm = _savgol_apply(motion.trans, coeffs)
+    trans_out = ((1.0 - max_strength) * motion.trans + max_strength * trans_sm).astype(np.float32)
+
+    return SmplMotion(
+        poses=adaptive(motion.poses),
+        trans=trans_out,
+        fps=motion.fps,
+        betas=motion.betas,
+        left_hand_pose=adaptive_hand(motion.left_hand_pose),
+        right_hand_pose=adaptive_hand(motion.right_hand_pose),
+        frame=motion.frame,
+        source_clip=motion.source_clip,
+        meta=dict(motion.meta, dejitter="confidence", dejitter_kappa=kappa, dejitter_max_strength=max_strength),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Trajectory-level anti-drift (the honest, scoped-down foot-skate cleanup)
 # ---------------------------------------------------------------------------
 
@@ -322,25 +416,42 @@ def refine_motion(
     polyorder: int = 2,
     strength: float = 1.0,
     lam: float = 10.0,
+    kappa: float = 0.02,
     smooth_hands: bool = True,
     anti_drift: bool = True,
     vel_thresh: float = 0.02,
     min_duration: float = 0.2,
     damping: float = 0.7,
+    cfg: object = None,
+    video: object = None,
 ) -> SmplMotion:
     """Apply the enabled refinement passes and return a new :class:`SmplMotion`.
 
-    ``method`` picks the de-jitter: 'savgol' (local polynomial fit) or
-    'variational' (global acceleration-penalized least squares -- the HTD-Refine
-    objective). Order matters: de-jitter first (so drift detection sees clean
-    velocities), then anti-drift. Either pass can be disabled; always returns a
-    fresh object (the input is never mutated, even when both passes are off).
+    ``method`` picks the smoothing pass. Three are pure-NumPy (this module):
+    'savgol' (uniform local polynomial fit), 'variational' (global
+    acceleration-penalized least squares -- the HTD-Refine objective), and
+    'confidence' (per-joint adaptive SG, smoothing each joint by its own local
+    jitter; ``kappa`` sets the accel knee, ``strength`` caps it). The rest are
+    learned passes in ``refine_learned`` ('dposer', 'scorehmr'), heavy and opt-in
+    -- pass ``cfg=<PipelineConfig>`` (which supplies their repo/python/strength
+    knobs) and ``video=<clip path>`` for the image-guided ones. Order matters:
+    de-jitter first (so drift detection sees clean velocities), then anti-drift.
+    Either pass can be disabled; always returns a fresh object (the input is never
+    mutated, even when both passes are off).
     """
-    if method not in ("savgol", "variational"):
-        raise ValueError(f"refine method must be 'savgol' or 'variational', got {method!r}")
+    from .refine_learned import available_refiners, learned_refine  # cheap: no torch at import
+    learned = set(available_refiners())
+    if method not in {"savgol", "variational", "confidence"} | learned:
+        raise ValueError(f"unknown refine method {method!r} (methods: savgol, variational, confidence, {', '.join(sorted(learned))})")
     out = motion
-    if smooth and method == "variational":
+    if smooth and method in learned:
+        if cfg is None:
+            raise ValueError(f"refine_method={method!r} is a learned pass; pass the config as cfg=<PipelineConfig>")
+        out = learned_refine(out, cfg, method, video=video)
+    elif smooth and method == "variational":
         out = variational_smooth(out, lam=lam, window=max(window, 32), smooth_hands=smooth_hands)
+    elif smooth and method == "confidence":
+        out = confidence_dejitter(out, window=window, polyorder=polyorder, kappa=kappa, max_strength=strength, smooth_hands=smooth_hands)
     elif smooth:
         out = temporal_dejitter(out, window=window, polyorder=polyorder, strength=strength, smooth_hands=smooth_hands)
     if anti_drift:

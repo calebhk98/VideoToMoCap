@@ -1,7 +1,7 @@
 """Whole-body SMPL-X backends that emit one file per frame.
 
-A large family of whole-body methods (SMPLest-X, WHAC, OSX, Hand4Whole++,
-Multi-HMR, ...) run per-frame inference and dump a SMPL-X ``.npz``/``.npy`` per
+A large family of whole-body methods (SMPLest-X, SMPLer-X, WHAC, OSX,
+Hand4Whole++, Multi-HMR, ...) run per-frame inference and dump a SMPL-X ``.npz``/``.npy`` per
 frame with the same standard key names (``global_orient``, ``body_pose``,
 ``left_hand_pose``, ``right_hand_pose``, ``betas``, ``transl``). Rather than
 write five near-identical adapters, ``SmplXFramesBackend`` does the shared
@@ -131,6 +131,38 @@ class SMPLestXBackend(SmplXFramesBackend):
         argv = [
             self.cfg.backend_python, "main/inference.py",
             "--video", str(video_path),
+            "--output_folder", str(out_dir.resolve()),
+            *self.cfg.backend_extra_args,
+        ]
+        return argv, repo
+
+
+class CamenduruSMPLerXBackend(SmplXFramesBackend):
+    """SMPLer-X via camenduru's runnable repackaging of the model.
+
+    https://github.com/camenduru/SMPLer-X -- the same SMPLer-X regressor as
+    ``smplestx`` above, but wrapped for one-shot video inference. Its
+    ``main/slurm_inference.sh {VIDEO} {FORMAT} {FPS} {CKPT}`` extracts frames
+    with ffmpeg and runs ``main/inference.py`` per frame, writing one SMPL-X npz
+    per detection under ``<output_folder>/smplx/{frame:05}_{bbox}.npz`` with the
+    standard keys (``global_orient``, ``body_pose``, ``left_hand_pose``,
+    ``right_hand_pose``, ``betas``, ``transl``). Non-commercial (S-Lab) license.
+
+    Distinct from ``smplestx`` only in invocation and output layout: camenduru's
+    ``inference.py`` runs on a folder of frames (``--img_path``) rather than a
+    video, so point ``backend_extra_args`` at your checkpoint (e.g.
+    ``--pretrained_model smpler_x_h32``). Single-subject footage yields one bbox
+    per frame; if you enable ``--multi_person`` upstream, filter to one detection.
+    """
+
+    name = "camenduru_smplerx"
+    frame_glob = "smplx/*.npz"      # camenduru nests the per-frame SMPL-X npz here
+
+    def _command(self, video_path, out_dir, static):
+        repo = Path(self.cfg.backend_repo)
+        argv = [
+            self.cfg.backend_python, "main/inference.py",
+            "--img_path", str(video_path),
             "--output_folder", str(out_dir.resolve()),
             *self.cfg.backend_extra_args,
         ]

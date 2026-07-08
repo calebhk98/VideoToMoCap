@@ -64,9 +64,10 @@ class PipelineConfig:
 
     # --- HMR backend -----------------------------------------------------
     backend: str = "gvhmr"
-    """A registered backend. Body-only: 'gvhmr','wham','tram'. Whole-body SMPL-X
-    (with hands): 'smplestx','whac','osx','hand4whole','multihmr'. Combined:
-    'fusion' (body + hand net). Testing: 'noop'."""
+    """A registered backend. Body-only: 'gvhmr','wham','tram','trace','hmr2'.
+    Whole-body SMPL-X (with hands): 'smplestx','camenduru_smplerx','hybrik','whac',
+    'osx','hand4whole','multihmr','sam3dbody'. Combined: 'fusion' (body + hand
+    net). Testing: 'noop'."""
 
     backend_repo: Optional[Path] = None
     """Path to the cloned upstream repo (e.g. the GVHMR checkout)."""
@@ -127,9 +128,46 @@ class PipelineConfig:
     Off by default -- turn on if your backend's output is jittery."""
 
     refine_method: str = "savgol"
-    """De-jitter method when ``refine`` is on: 'savgol' (fast local fit) or
+    """De-jitter method when ``refine`` is on: 'savgol' (fast uniform local fit),
     'variational' (global acceleration-penalized smoother -- the HTD-Refine
-    objective solved directly; stronger, slightly slower)."""
+    objective solved directly; stronger, slightly slower), or 'confidence'
+    (per-joint adaptive: smooths each joint in proportion to its own local jitter,
+    so inferred/occluded joints get denoised hard while clean ones stay sharp)."""
+
+    confidence_kappa: float = 0.02
+    """For ``refine_method: confidence`` -- the per-joint acceleration (rad/frame^2)
+    at which a joint receives half its maximum smoothing. Lower = smooth more
+    aggressively (more joints treated as noisy); higher = only the jerkiest joints
+    are touched. Ignored by the other refine methods."""
+
+    # --- Learned refinement (refine_method: dposer) ----------------------
+    # Heavy, opt-in: the DPoser-X pose prior runs in its OWN env as a subprocess
+    # (see videotomocap/refine_learned.py). Unused unless refine_method='dposer'.
+    dposer_repo: Optional[Path] = None
+    """Cloned DPoser-X checkout (moonbow721/DPoser-X). Required for the 'dposer'
+    refine method; the bridging driver runs with this as its working directory."""
+
+    dposer_python: Optional[str] = None
+    """Interpreter for the DPoser-X env (its deps pin torch 1.12.1 / CUDA 11.3).
+    Falls back to 'python' on PATH."""
+
+    dposer_config: str = "configs/body/subvp/timefc.py"
+    """DPoser-X model config (relative to ``dposer_repo``) selecting the prior."""
+
+    dposer_strength: float = 1.0
+    """Blend of the denoised pose vs the original for 'dposer' (0 = off/no-op,
+    1 = fully replace with the prior's output)."""
+
+    scorehmr_repo: Optional[Path] = None
+    """Cloned ScoreHMR checkout (statho/ScoreHMR). Required for the 'scorehmr'
+    refine method. Unlike 'dposer', ScoreHMR is image-guided -- it re-reads the
+    source video -- so it only runs during the ``hmr`` stage."""
+
+    scorehmr_python: Optional[str] = None
+    """Interpreter for the ScoreHMR env. Falls back to 'python' on PATH."""
+
+    scorehmr_strength: float = 1.0
+    """Blend of ScoreHMR's refined pose vs the original (0 = off/no-op, 1 = full)."""
 
     auto_mirror: str = "off"
     """Automatic left/right-mirror handling for flipped (e.g. selfie) footage,
@@ -244,6 +282,10 @@ class PipelineConfig:
             self.backend_repo = Path(self.backend_repo)
         if self.hand_repo is not None:
             self.hand_repo = Path(self.hand_repo)
+        if self.dposer_repo is not None:
+            self.dposer_repo = Path(self.dposer_repo)
+        if self.scorehmr_repo is not None:
+            self.scorehmr_repo = Path(self.scorehmr_repo)
         if self.use_frame not in ("global", "incam"):
             raise ValueError(f"use_frame must be 'global' or 'incam', got {self.use_frame!r}")
         # YAML parses bare off/on/yes/no as booleans, so `auto_mirror: off` arrives
