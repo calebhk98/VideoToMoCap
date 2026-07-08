@@ -19,7 +19,9 @@ same footage:
    aggregate into a `(description, tags)` search index; then LoRA-fine-tune
    Qwen2.5-VL on those labels so it captions a whole clip in one pass. Its light
    layer is fully built (stdlib-only, GPU-free tests); the models are bridged.
-   See [`videocaption/README.md`](videocaption/README.md).
+   Its captions can also **pair with Pipeline 1's motion** (`videotomocap
+   caption-dataset`) to train a *text-conditioned* movement model. See
+   [`videocaption/README.md`](videocaption/README.md).
 
 Everything except the neural stages (HMR inference, motion-model training, the
 caption VLMs) is plain NumPy/stdlib and runs on a laptop. Those stages shell out
@@ -311,6 +313,7 @@ videotomocap/
   ingest.py            scan footage → manifest; exclude/include clips
   pose.py              SmplMotion container; anonymize() = drop shape, keep pose
   dataset.py           aggregate → AMASS-SMPL npz + train/val split + stats
+  captioned_dataset.py bridge: slice motion at Pipeline 3's caption-segment spans → text-to-motion dataset
   pipeline.py          orchestration (scan→hmr→refine→anonymize→build), parallel+resumable
   gpu.py               GPU auto-detection + worker/device resolution
   regions.py           body regions → SMPL joints (occlusion tagging)

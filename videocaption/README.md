@@ -75,6 +75,33 @@ upstream trainer (LLaMA-Factory by default — set `finetune_repo`).
   (no separate adapter load).
 - Validate on held-out windows before running across the rest of the archive.
 
+## Feeding the movement model (text-to-motion)
+
+Pipeline 3's captions double as **text labels for Pipeline 2's motion model**.
+Pipeline 1 recovers one motion sequence per footage file; Pipeline 3 cuts each
+file into caption segments. To train a *text-conditioned* motion model you need
+one `(motion snippet, caption)` pair per segment — so a bridge slices the motion
+at the caption-segment boundaries and re-emits it in Pipeline 1's dataset shape,
+carrying each segment's caption:
+
+```bash
+python -m videotomocap run                 # Pipeline 1: footage -> work/pose + dataset
+python -m videocaption  run                # Pipeline 3: footage -> work/caption (captions)
+python -m videotomocap caption-dataset \   # bridge: slice motion at segment spans + attach captions
+    --caption-work work/caption --out work/dataset_captioned
+python -m motion_model --config configs/motion_model.yaml train   # conditioning: text, dataset_dir: work/dataset_captioned
+```
+
+The join is free — Pipeline 1's `clip_id` and Pipeline 3's `video_id` use the
+**same id formula**, so a file matches itself across pipelines (point both at the
+same `footage_root`). The split is by *source video* (no train/val leakage between
+a file's own segments), the sliced motion is already anonymized (it comes from
+Pipeline 1's `pose/` npz, written after `anonymize()`), and `motion_model`'s
+`conditioning: text` reads the `caption` field automatically. This is only needed
+for text conditioning — `none` (style) and `action` (motion clusters) need no
+captions. Note the captions are *scene* descriptions; for motion-focused targets
+you'd steer the Step 4 aggregation prompt toward body movement.
+
 ## Hardware (2× RTX 3090, 48 GB, NVLink, local-only)
 
 - **Captioning throughput:** benchmark first. Rough (unvalidated) single-GPU

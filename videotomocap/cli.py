@@ -184,6 +184,26 @@ def cmd_build(args) -> int:
     return 0
 
 
+def cmd_caption_dataset(args) -> int:
+    """Pair Pipeline 3 captions with this pipeline's motion -> text-to-motion dataset.
+
+    Slices each clip's recovered motion at the caption-segment boundaries and writes
+    an AMASS + index.json dataset (one snippet+caption per segment) that Pipeline 2
+    trains on with ``conditioning: text``.
+    """
+    from .captioned_dataset import build_captioned_dataset  # lazy: pulls in videocaption
+
+    cfg = _cfg(args)
+    out = Path(args.out) if args.out else cfg.work_root / "dataset_captioned"
+    stats = build_captioned_dataset(
+        cfg.pose_dir, args.caption_work, out,
+        min_frames=cfg.min_clip_frames, val_fraction=cfg.val_fraction,
+    )
+    print(f"Captioned dataset written to {out}")
+    print(json.dumps(stats, indent=2))
+    return 0
+
+
 def cmd_run(args) -> int:
     """Run HMR and build the dataset in one go."""
     cfg = _cfg(args)
@@ -234,6 +254,13 @@ def build_parser() -> argparse.ArgumentParser:
     mr.set_defaults(func=cmd_mirror)
 
     sub.add_parser("build", help="aggregate anonymized clips into an AMASS dataset").set_defaults(func=cmd_build)
+
+    cd = sub.add_parser("caption-dataset",
+                        help="pair Pipeline 3 captions with motion -> text-to-motion dataset")
+    cd.add_argument("--caption-work", dest="caption_work", default="work/caption",
+                    help="Pipeline 3 work_root holding the caption manifest + labels")
+    cd.add_argument("--out", help="output dataset dir (default: <work_root>/dataset_captioned)")
+    cd.set_defaults(func=cmd_caption_dataset)
     return p
 
 
