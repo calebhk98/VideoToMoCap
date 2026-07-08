@@ -64,7 +64,7 @@ class CLoSDTrainer(MotionTrainer):
             cmd.extend(["--resume_checkpoint", str(ckpt)])
         cmd += self._mdm_eval_flags()   # save_every/eval_every -> the overfitting guard
         cmd.extend(self.cfg.extra_args)
-        self._run_train(cmd, repo, self.cfg.metrics_path)   # early-stop when enabled
+        self._run_train(cmd, repo)   # early-stop when enabled
         print(
             "  DiP planner training launched. Then close the loop from the repo:\n"
             "    fine-tune the PHC tracker with DiP in-the-loop (Isaac Gym, ~50 GB VRAM);\n"

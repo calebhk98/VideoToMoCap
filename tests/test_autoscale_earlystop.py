@@ -143,8 +143,8 @@ def test_run_with_monitor_stops_at_overfitting_onset():
         series = [1.0, 0.7, 0.5, 0.45, 0.5, 0.6, 0.72]           # bottoms at step 300, rises 3
         proc = _FakeProc(alive=50)
         result = earlystop.run_with_monitor(
-            ["fake-train"], metrics_path=metrics, patience=3, poll_interval=0.0,
-            sleep_fn=_curve_writer(metrics, series), popen_fn=lambda *a, **k: proc)
+            ["fake-train"], read_verdict=earlystop.file_curve_reader(metrics, patience=3),
+            poll_interval=0.0, sleep_fn=_curve_writer(metrics, series), popen_fn=lambda *a, **k: proc)
         assert result.stopped and proc.terminated
         assert result.best_step == 300                            # keep the pre-overfit checkpoint
 
@@ -155,8 +155,8 @@ def test_run_with_monitor_lets_a_clean_run_finish():
         series = [1.0, 0.8, 0.6, 0.5]                             # monotonically improving
         proc = _FakeProc(alive=4)                                 # dies on its own after 4 polls
         result = earlystop.run_with_monitor(
-            ["fake-train"], metrics_path=metrics, patience=3, poll_interval=0.0,
-            sleep_fn=_curve_writer(metrics, series), popen_fn=lambda *a, **k: proc)
+            ["fake-train"], read_verdict=earlystop.file_curve_reader(metrics, patience=3),
+            poll_interval=0.0, sleep_fn=_curve_writer(metrics, series), popen_fn=lambda *a, **k: proc)
         assert not result.stopped and not proc.terminated
         assert result.verdict is not None and not result.verdict.overfitting
 
@@ -207,11 +207,11 @@ def test_trainer_run_train_routes_to_monitor_when_early_stop():
 
         es.run_with_monitor = fake_monitor
         try:
-            trainer._run_train(["some", "cmd"], Path(tmp), cfg.metrics_path)
+            trainer._run_train(["some", "cmd"], Path(tmp))
         finally:
             es.run_with_monitor = orig
-        assert seen["kw"]["metrics_path"] == cfg.metrics_path
-        assert seen["kw"]["patience"] == cfg.early_stop_patience
+        assert callable(seen["kw"]["read_verdict"])   # routed with a verdict reader
+        assert seen["kw"]["poll_interval"] == cfg.early_stop_poll_s
 
 
 def _run_all():

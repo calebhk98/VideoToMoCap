@@ -172,16 +172,18 @@ def cmd_overfit_check(args) -> int:
 
 def cmd_overfit_report(args) -> int:
     """Post-train: read the train/val curve and report the best pre-overfit checkpoint."""
-    from . import overfit
+    from . import metrics, overfit
 
     cfg = _cfg(args)
-    metrics = Path(args.metrics) if args.metrics else cfg.checkpoint_dir / "metrics.jsonl"
-    if not metrics.exists():
-        print(f"No metrics file at {metrics}. Set eval_every so the trainer logs a val "
-              f"curve, or pass --metrics <path> to point at the trainer's own log.")
+    if args.metrics:   # explicit override: parse whatever file the user points at
+        curve = overfit.read_metrics(Path(args.metrics))
+    else:              # otherwise let the per-trainer adapter locate + normalize it
+        curve = metrics.read_curve(cfg)
+    if curve is None:
+        print(f"No val curve for method={cfg.method}. {metrics.describe_source(cfg)} "
+              f"Set eval_every so a curve is logged, or pass --metrics <path>.")
         return 1
-    steps, train, val = overfit.read_metrics(metrics)
-    verdict = overfit.analyze_curves(steps, train, val, cfg.early_stop_patience)
+    verdict = overfit.analyze_curves(*curve, cfg.early_stop_patience)
     print(overfit.format_curves(verdict))
     return 0
 

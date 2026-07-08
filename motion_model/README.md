@@ -88,6 +88,15 @@ eval_every: 2000
   checkpoint. This is why `num_steps` from `auto_scale` is just a ceiling: the data
   decides the real stopping point. Needs `eval_every > 0` so a val curve exists.
 
+  The val curve is located per trainer by `motion_model/metrics.py`: `noop` writes our
+  normalized `metrics.jsonl`; **MDM / CLoSD** are read from the OpenAI-baselines
+  `progress.csv` their logger writes in `save_dir` (`overfit-report` reads it too, no
+  `--metrics` needed); MoMask has no adapter yet, so early-stop won't fire for it until
+  one is added (it says so at preflight rather than silently doing nothing). The column
+  mappings are isolated in `metrics.py` and flagged *verify against your checkout* — 
+  upstream logging drifts, and that's the one place to fix it. A trainer with a
+  different log: point `overfit-report --metrics` at it, or add a parser in `metrics.py`.
+
 ## Overfitting guard
 
 Training happens inside the upstream loop (a subprocess), so this package can't
