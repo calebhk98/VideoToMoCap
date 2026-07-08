@@ -69,6 +69,12 @@ videotomocap/
                     hands. FK wrist relocalization + smoothing glue lives here.
     noop.py         Synthetic backend — no GPU/weights. Powers the tests.
 motion_model/     Pipeline 2: MDM data-prep bridge, finetune config, docs.
+character/        Pipeline 3: invented-character generation. Pluggable open-tool
+                  backends (lhm/idol/en3d/so_smpl/econ/icon/sifu/mpfb2/...) selected by
+                  CharacterConfig.method — all local/open, each a subprocess adapter with
+                  a noop for GPU-free tests. Mesh critic (pure-NumPy geometry + local-VLM
+                  on multi-view renders) + generate→critique→refine loop. SMPL-X-native
+                  tools drive from Pipeline 2 with no retarget. See character/README.md.
 scripts/selftest.py   GPU-free end-to-end test of pipeline 1.
 tests/            Unit tests (rotation math, pose helpers).
 dropzone/         Where the user drops videos (git-ignores the media).

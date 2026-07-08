@@ -1,0 +1,26 @@
+# Pipeline 3 -- invented character generation. `python -m character --config configs/character.yaml <cmd>`
+# Swap `method` to A/B any tool (see `python -m character methods`). Every tool is local/open.
+
+method: lhm                     # lhm (recommended) | idol | en3d | so_smpl | econ | icon | sifu | mpfb2 | noop | ...
+prompt: "a high elf ranger, freckles, photorealistic"
+input_image: null              # concept image for image-native tools (lhm/idol/econ/...); generate with FLUX first
+
+work_root: work/character
+backend_python: python         # interpreter of the tool's own env (e.g. a conda env's python)
+repo: null                     # cloned upstream repo for the method (e.g. /opt/repos/LHM)
+weights: null                  # model checkpoint dir/file when the tool needs one separately
+smpl_model: null               # SMPL-X body model for tools that fit/animate against it
+cuda_device: null              # CUDA_VISIBLE_DEVICES for the subprocess
+
+# --- mesh critic + refine loop ---
+critic: geometric              # noop | geometric (pure-NumPy) | vlm (local VLM on renders) | combined
+renderer: noop                 # noop | blender  (blender needed for the vlm critic)
+blender: null                  # blender executable for the 'blender' renderer
+vlm_python: null               # env for the local VLM critic (Qwen2-VL/InternVL/MiniCPM-V)
+vlm_model: null                # local VLM weights for the 'vlm' critic
+n_views: 4
+max_attempts: 3
+n_candidates: 1
+accept_score: 0.75
+seed: 0
+extra_args: []                 # extra argv appended to the upstream command
